@@ -58,12 +58,16 @@ def auditar_websocket_infinito():
             
             for par in pares_prueba:
                 precio = mercado.obtener_precio(par)
-                
-                if precio > 0:
+                # AGREGAMOS ESTA VERIFICACIÓN
+                es_sano = mercado.verificar_salud_datos(par, max_retraso_segundos=5) 
+
+                if precio > 0 and es_sano: # Si hay precio Y es reciente
                     datos_recibidos += 1
-                    # Formato de precio con comas y decimales
                     precio_fmt = f"${precio:,.4f}" 
                     estado = "🟢 Operativo"
+                elif not es_sano and precio > 0:
+                    precio_fmt = f"${precio:,.4f}"
+                    estado = "🔴 CONGELADO" # <--- Esto deberías ver al cortar internet
                 else:
                     precio_fmt = "Cargando..."
                     estado = "🟡 Esperando..."
