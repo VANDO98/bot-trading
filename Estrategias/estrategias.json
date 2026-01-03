@@ -1,0 +1,26 @@
+{
+  "BTCUSDT": {
+    "activo": true,
+    "timeframe": "5m",
+    "apalancamiento": 10,
+    "porcentaje_balance": 25,
+    "decimales": 3,
+    "indicadores": {
+      "rsi_periodo": 14,
+      "rsi_sobreventa": 30,
+      "rsi_sobrecompra": 70
+    }
+  },
+  "ETHUSDT": {
+    "activo": true,
+    "timeframe": "15m",
+    "apalancamiento": 10,
+    "porcentaje_balance": 20,
+    "decimales": 2,
+    "indicadores": {
+      "rsi_periodo": 14,
+      "rsi_sobreventa": 25,
+      "rsi_sobrecompra": 75
+    }
+  }
+}

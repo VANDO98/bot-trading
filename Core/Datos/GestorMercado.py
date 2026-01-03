@@ -4,15 +4,17 @@ import time
 
 class GestorMercado:
     """
-    Especialista en flujo de datos (WebSockets).
-    OPTIMIZADO Y BLINDADO: 
-    1. Usa Multiplexing (Futuros/Spot).
-    2. Watchdog: Controla la antigüedad de los datos para detectar desconexiones silenciosas.
+    Especialista en WebSockets.
+    ARQUITECTURA HÍBRIDA:
+    1. Escucha @ticker para visualización en tiempo real y Watchdog.
+    2. Escucha @kline para alimentar el historial matemático.
+    Todo en una sola conexión multiplexada.
     """
     def __init__(self):
-        self.precios = {} 
-        self.ultimas_actualizaciones = {} # GUARDA LA HORA DEL ÚLTIMO DATO
+        self.precios_actuales = {} 
+        self.ultimas_actualizaciones = {} 
         self.stream_activo = False
+        self.callback_kline = None # Canal de comunicación con GestorVelas
         
         self.twm = ThreadedWebsocketManager(
             api_key=Config.BINANCE_API_KEY, 
@@ -21,70 +23,85 @@ class GestorMercado:
         )
         self.twm.start()
 
-    def iniciar_flujo_multiples_pares(self, lista_pares):
-        """Inicia el stream seleccionando la red correcta."""
-        # Inicializar memorias
-        for par in lista_pares:
-            self.precios[par.upper()] = 0.0
-            self.ultimas_actualizaciones[par.upper()] = 0 # Unix timestamp
+    def iniciar_flujo_hibrido(self, estrategias_dict, callback_kline):
+        """
+        Genera DOS suscripciones por cada par:
+        1. par@ticker (Para precio rápido)
+        2. par@kline_T (Para indicadores)
+        """
+        self.callback_kline = callback_kline
+        streams = []
+        
+        print("📡 Configurando WebSockets Híbridos (Precio + Velas)...")
+        
+        for par, config in estrategias_dict.items():
+            if not config.get("activo", False):
+                continue
             
-        streams = [f"{par.lower()}@ticker" for par in lista_pares]
-        print(f"📡 Radar iniciado para {len(streams)} pares.")
+            # Inicializamos variables
+            self.precios_actuales[par] = 0.0
+            self.ultimas_actualizaciones[par] = 0
+            
+            par_lower = par.lower()
+            tf = config['timeframe']
+            
+            # 1. Stream de Precio (Rápido, independiente)
+            streams.append(f"{par_lower}@ticker")
+            
+            # 2. Stream de Velas (Para cálculos)
+            streams.append(f"{par_lower}@kline_{tf}")
+            
+        print(f"🔗 Suscribiendo a {len(streams)} canales simultáneos...")
 
-        if Config.BINANCE_API_KEY and Config.BINANCE_SECRET_KEY:
-            print("🔒 MODO FUTURES (Autenticado)")
-            self.twm.start_futures_multiplex_socket(
-                callback=self.procesar_mensaje_multiplex, 
-                streams=streams
-            )
+        # Iniciamos el Multiplex Socket (Futures o Spot)
+        if Config.BINANCE_API_KEY:
+            self.twm.start_futures_multiplex_socket(callback=self.procesar_msg, streams=streams)
         else:
-            print("🔓 MODO SPOT (Anónimo)")
-            self.twm.start_multiplex_socket(
-                callback=self.procesar_mensaje_multiplex, 
-                streams=streams
-            )
+            print("⚠️ Sin claves: Usando Spot para simulación")
+            self.twm.start_multiplex_socket(callback=self.procesar_msg, streams=streams)
             
         self.stream_activo = True
 
-    def procesar_mensaje_multiplex(self, msg):
-        """Al recibir datos, actualizamos PRECIO y HORA."""
-        if 'data' in msg:
-            data = msg['data']
-            if 'c' in data and 's' in data:
-                symbol = data['s']
-                precio = float(data['c'])
-                
-                self.precios[symbol] = precio
-                # Marcamos el momento exacto en que recibimos vida de este par
-                self.ultimas_actualizaciones[symbol] = time.time()
+    def procesar_msg(self, msg):
+        """
+        ROUTER DE MENSAJES:
+        Separa lo que es precio (Ticker) de lo que es estructura (Kline).
+        """
+        if 'data' not in msg:
+            return
+
+        payload = msg['data']
+        evento = payload.get('e') # Tipo de evento
+        symbol = payload.get('s') # Símbolo (Ej: BTCUSDT)
+
+        # CASO A: Actualización de Precio (Ticker)
+        # El evento suele llamarse '24hrTicker' en Spot o Futures
+        if evento == '24hrTicker':
+            # Actualizamos SOLO el precio visual y el Watchdog
+            self.precios_actuales[symbol] = float(payload['c'])
+            self.ultimas_actualizaciones[symbol] = time.time()
+
+        # CASO B: Actualización de Vela (Kline)
+        elif evento == 'kline':
+            kline_data = payload['k']
+            # Enviamos la data cruda al GestorVelas para que él haga su magia
+            if self.callback_kline:
+                self.callback_kline(symbol, kline_data)
 
     def obtener_precio(self, symbol):
-        """Devuelve el precio actual."""
-        return self.precios.get(symbol.upper(), 0.0)
+        return self.precios_actuales.get(symbol, 0.0)
 
-    def verificar_salud_datos(self, symbol, max_retraso_segundos=60):
-        """
-        NUEVA FUNCIÓN CRÍTICA:
-        Verifica si los datos de un par están 'frescos'.
-        Retorna True si la conexión está viva.
-        Retorna False si los datos son viejos (Posible desconexión).
-        """
-        ultimo_check = self.ultimas_actualizaciones.get(symbol.upper(), 0)
-        ahora = time.time()
+    def verificar_salud_datos(self, symbol, max_retraso=60):
+        """Revisa la antigüedad del dato del TICKER (no de la vela)"""
+        last_update = self.ultimas_actualizaciones.get(symbol, 0)
+        if last_update == 0: 
+            return False
         
-        diferencia = ahora - ultimo_check
-        
-        if ultimo_check == 0:
-            return False # Nunca se han recibido datos
-            
-        if diferencia > max_retraso_segundos:
-            print(f"⚠️ ALERTA: Datos de {symbol} obsoletos ({int(diferencia)}s sin updates).")
-            return False # Los datos son viejos, peligro.
-            
-        return True # Todo ok
+        if time.time() - last_update > max_retraso:
+            return False
+        return True
 
     def detener_todo(self):
         self.twm.stop()
-        self.precios.clear()
         self.stream_activo = False
-        print("🔕 Radar detenido.")
+        print("🔕 WebSockets detenidos.")

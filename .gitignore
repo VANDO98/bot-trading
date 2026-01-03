@@ -1,2 +1,23 @@
-.env
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Entornos Virtuales ---
 .venv/
+venv/
+env/
+ENV/
+
+# --- Configuración y Claves (MUY IMPORTANTE) ---
+.env
+.env.local
+config.ini
+
+# --- VS Code ---
+.vscode/
+
+# --- Logs y Bases de datos locales ---
+*.log
+*.sqlite3
