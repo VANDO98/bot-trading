@@ -7,8 +7,8 @@
     "decimales": 3,
     "indicadores": {
       "rsi_periodo": 14,
-      "rsi_sobreventa": 30,
-      "rsi_sobrecompra": 70
+      "rsi_sobreventa": 60,
+      "rsi_sobrecompra": 80
     }
   },
   "ETHUSDT": {

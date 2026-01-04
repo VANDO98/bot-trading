@@ -72,3 +72,57 @@ class GestorBasico:
             return True
         except:
             return False
+        
+    # ... (Mantén los métodos anteriores igual) ...
+
+    def obtener_posicion(self, symbol):
+        """
+        Consulta en Binance si tenemos una posición abierta para este par.
+        Retorna la cantidad (amt).
+        - Si amt > 0: Estamos en LONG.
+        - Si amt < 0: Estamos en SHORT.
+        - Si amt == 0: No tenemos posición.
+        """
+        try:
+            # Info de posiciones (riesgo)
+            positions = self.api.futures_position_information(symbol=symbol)
+            # La API a veces devuelve una lista, buscamos el item correcto
+            for p in positions:
+                if p['symbol'] == symbol:
+                    return float(p['positionAmt'])
+            return 0.0
+        except Exception as e:
+            print(f"❌ Error consultando posición de {symbol}: {e}")
+            return 0.0
+            
+    def cerrar_posicion_mercado(self, symbol, cantidad_actual):
+        """
+        Cierra una posición lanzando una orden contraria a Mercado.
+        """
+        try:
+            side = SIDE_SELL if cantidad_actual > 0 else SIDE_BUY
+            print(f"🚨 CERRANDO POSICIÓN de {symbol} (Market)...")
+            
+            # Para cerrar, enviamos una orden con la misma cantidad pero lado contrario
+            # Usamos abs() porque la cantidad puede venir negativa si es Short
+            orden = self.api.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type="MARKET",
+                quantity=abs(cantidad_actual)
+            )
+            return orden
+        except Exception as e:
+            print(f"❌ Error cerrando posición: {e}")
+            return None
+        
+    def verificar_ordenes_pendientes(self, symbol):
+        """
+        Devuelve True si hay órdenes abiertas (Limit) esperando llenarse.
+        """
+        try:
+            ordenes = self.api.futures_get_open_orders(symbol=symbol)
+            return len(ordenes) > 0
+        except Exception as e:
+            print(f"⚠️ Error verificando órdenes pendientes: {e}")
+            return False
