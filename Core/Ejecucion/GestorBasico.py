@@ -1,5 +1,6 @@
 from binance.enums import SIDE_BUY, SIDE_SELL, TIME_IN_FORCE_GTC, ORDER_TYPE_LIMIT
 from binance.exceptions import BinanceAPIException
+from Core.Ejecucion.GestorPrecision import GestorPrecision  # <--- IMPORTAMOS TU NUEVA ARMA
 
 class GestorBasico:
     """
@@ -8,6 +9,16 @@ class GestorBasico:
     """
     def __init__(self, cliente_api):
         self.api = cliente_api.client
+        # Cache de gestores de precisión para no instanciar uno en cada orden
+        self.precisiones = {}
+
+    def _obtener_precision(self, symbol):
+        """Busca o crea el gestor de precisión para el par."""
+        if symbol not in self.precisiones:
+            gp = GestorPrecision(symbol)
+            gp.detectar() # Auto-detectar decimales al primer uso
+            self.precisiones[symbol] = gp
+        return self.precisiones[symbol]
 
     def obtener_balance_usdt(self):
         """Consulta el saldo disponible en la billetera de Futuros"""
@@ -33,23 +44,33 @@ class GestorBasico:
         monto_margen = balance * (porcentaje / 100)
         poder_compra = monto_margen * apalancamiento
         
-        cantidad_monedas = poder_compra / precio
+        cantidad_cruda = poder_compra / precio
         
-        # Redondear según la precisión que exige Binance para ese par
-        cantidad_final = round(cantidad_monedas, precision)
+        # --- MAGIA AQUÍ ---
+        gp = self._obtener_precision(symbol)
+        cantidad_final = gp.redondear_cantidad(cantidad_cruda)
+        # ------------------
         
         return cantidad_final, balance
 
     def colocar_orden_limit(self, symbol, side, cantidad, precio):
         try:
-            print(f"🚀 Enviando orden {side} para {symbol}. Cant: {cantidad} a ${precio}...")
+
+            # --- VALIDACIÓN DE PRECISIÓN ---
+            gp = self._obtener_precision(symbol)
+            precio_final = gp.redondear_precio(precio)
+            cantidad_final = gp.redondear_cantidad(cantidad)
+            # -------------------------------
+
+            print(f"🚀 Enviando orden {side} para {symbol}. Cant: {cantidad_final} a ${precio_final}...")
+            
             orden = self.api.futures_create_order(
                 symbol=symbol,
                 side=side,
                 type=ORDER_TYPE_LIMIT,
                 timeInForce=TIME_IN_FORCE_GTC,
-                quantity=cantidad,
-                price=str(precio)
+                quantity=cantidad_final,
+                price=str(precio_final)
             )
             return orden
         except BinanceAPIException as e:
