@@ -1,44 +1,57 @@
 import json
 import os
-from dotenv import load_dotenv
-
-# Cargar variables de entorno (.env)
-load_dotenv()
 
 class Config:
     """
-    Clase estática que carga la configuración UNA sola vez al inicio.
+    Gestor de Configuración Centralizado.
+    Lee el archivo config_trading.json para proveer datos a todo el bot.
     """
-    _config = {}
     
-    # Rutas
+    # 1. Rutas Dinámicas (Funciona en Windows, Mac y Linux)
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    CONFIG_FILE = os.path.join(BASE_DIR, 'config_trading.json')
-
-    try:
-        with open(CONFIG_FILE, 'r') as f:
-            _config = json.load(f)
-            print(f"✅ Configuración cargada desde: {CONFIG_FILE}")
-    except Exception as e:
-        print(f"❌ Error crítico cargando config_trading.json: {e}")
-        _config = {}
-
-    # --- Accesores Directos (Shortcuts) ---
+    RUTA_CONFIG = os.path.join(BASE_DIR, 'config_trading.json')
     
-    # 1. Modo de Ejecución
-    MODO = _config.get('configuracion_global', {}).get('modo_ejecucion', 'dry_run')
-    USAR_TESTNET = (MODO == 'testnet')
-    
-    # 2. Credenciales (Desde .env por seguridad)
-    API_KEY = os.getenv('BINANCE_API_KEY')
-    SECRET_KEY = os.getenv('BINANCE_SECRET_KEY')
+    # Variable estática para acceso rápido
+    USAR_TESTNET = True
 
-    @classmethod
-    def obtener_pares_activos(cls):
-        """Devuelve un dict con solo los pares marcados como 'activo': true"""
-        todos = cls._config.get('pares', {})
-        return {k: v for k, v in todos.items() if v.get('activo', False)}
+    @staticmethod
+    def _cargar_json():
+        """Método interno seguro para leer el archivo"""
+        try:
+            with open(Config.RUTA_CONFIG, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data
+        except FileNotFoundError:
+            print(f"❌ Error Config: No encuentro el archivo en {Config.RUTA_CONFIG}")
+            return {}
+        except Exception as e:
+            print(f"❌ Error Config: El JSON está mal formado ({e})")
+            return {}
 
-    @classmethod
-    def obtener_config_estrategia(cls, par):
-        return cls._config.get('pares', {}).get(par, {})
+    @staticmethod
+    def cargar_configuracion():
+        """
+        [NUEVO] Devuelve TODO el diccionario de configuración.
+        Vital para que BotController lea 'sistema_riesgo'.
+        """
+        return Config._cargar_json()
+
+    @staticmethod
+    def obtener_pares_activos():
+        """
+        Devuelve un diccionario filtrado solo con los pares activos.
+        """
+        data = Config._cargar_json()
+        
+        # Actualizamos la variable global (para que GestorHibrido sepa a dónde conectar)
+        # Nota: Ahora busca 'usar_testnet' en la raíz del JSON
+        Config.USAR_TESTNET = data.get("usar_testnet", True)
+        
+        pares_raw = data.get("pares", {})
+        pares_activos = {}
+        
+        for par, detalles in pares_raw.items():
+            if detalles.get("activo", False):
+                pares_activos[par] = detalles
+                
+        return pares_activos
