@@ -1,41 +1,44 @@
+import json
 import os
 from dotenv import load_dotenv
 
+# Cargar variables de entorno (.env)
+load_dotenv()
+
 class Config:
     """
-    Proveedor global de constantes y variables de entorno.
-    Centraliza la configuración para evitar 'magic numbers' dispersos.
+    Clase estática que carga la configuración UNA sola vez al inicio.
     """
+    _config = {}
     
-    # 1. Cargar variables de entorno al iniciar la clase
-    load_dotenv()
+    # Rutas
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    CONFIG_FILE = os.path.join(BASE_DIR, 'config_trading.json')
 
-    # --- Credenciales de API (Se leen del archivo .env) ---
-    BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
-    BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY")
-
-    # --- Configuración de Red y API ---
-    USAR_TESTNET = True 
-    URL_FUTURES_MAIN = "https://fapi.binance.com"
-    URL_FUTURES_TESTNET = "https://testnet.binancefuture.com"
-
-    # --- Configuración del Bot ---
-    NOMBRE_BOT = "BinanceBot-ARM-t4g"
-    TIMEFRAME_DEFECTO = "5m"  # Scalping 5m
-    
-    # --- Gestión de Riesgo Global ---
-    MAX_POSICIONES = 4        
-    TIMEOUT_ORDEN_LIMIT = 15  
-
-    @staticmethod
-    def validar_config():
-        """Verifica que las claves críticas existan antes de arrancar."""
-        if not Config.BINANCE_API_KEY or not Config.BINANCE_SECRET_KEY:
-            raise EnvironmentError("❌ ERROR CRÍTICO: No se encontraron las claves API en el archivo .env")
-        print(f"✅ Configuración cargada correctamente. Modo Testnet: {Config.USAR_TESTNET}")
-
-if __name__ == "__main__":
     try:
-        Config.validar_config()
+        with open(CONFIG_FILE, 'r') as f:
+            _config = json.load(f)
+            print(f"✅ Configuración cargada desde: {CONFIG_FILE}")
     except Exception as e:
-        print(e)
+        print(f"❌ Error crítico cargando config_trading.json: {e}")
+        _config = {}
+
+    # --- Accesores Directos (Shortcuts) ---
+    
+    # 1. Modo de Ejecución
+    MODO = _config.get('configuracion_global', {}).get('modo_ejecucion', 'dry_run')
+    USAR_TESTNET = (MODO == 'testnet')
+    
+    # 2. Credenciales (Desde .env por seguridad)
+    API_KEY = os.getenv('BINANCE_API_KEY')
+    SECRET_KEY = os.getenv('BINANCE_SECRET_KEY')
+
+    @classmethod
+    def obtener_pares_activos(cls):
+        """Devuelve un dict con solo los pares marcados como 'activo': true"""
+        todos = cls._config.get('pares', {})
+        return {k: v for k, v in todos.items() if v.get('activo', False)}
+
+    @classmethod
+    def obtener_config_estrategia(cls, par):
+        return cls._config.get('pares', {}).get(par, {})

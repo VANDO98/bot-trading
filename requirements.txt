@@ -1,4 +1,15 @@
-python-binance
-dotenv
+# --- Core Trading & Conexión ---
+ccxt==4.1.75
+unicorn-binance-websocket-api==1.46.2
+python-dotenv==1.0.0
+
+# --- Análisis de Datos ---
 pandas
+pandas-ta
 numpy
+
+# --- Base de Datos ---
+SQLAlchemy==2.0.25
+
+# --- Utilidades ---
+colorama==0.4.6
