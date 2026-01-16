@@ -24,19 +24,32 @@ class EstrategiaBase(ABC):
             'cerrada': kline_data['x']
         }
         
-        # Lógica simple de DataFrame (Concat o Append)
         df_nuevo = pd.DataFrame([nueva_fila])
+        
         if self.velas.empty:
             self.velas = df_nuevo
         else:
-            if nueva_fila['timestamp'] > self.velas.iloc[-1]['timestamp']:
+            ultimo_idx = self.velas.index[-1]
+            ultimo_time = self.velas.iloc[-1]['timestamp']
+
+            if nueva_fila['timestamp'] > ultimo_time:
+                # CASO A: Es una vela nueva -> Concatenamos (Pandas maneja las columnas nuevas rellenando con NaN)
                 self.velas = pd.concat([self.velas, df_nuevo], ignore_index=True)
             else:
-                self.velas.iloc[-1] = df_nuevo.iloc[0]
+                # CASO B: Es la misma vela actualizándose (Intrabarra) -> Actualización Quirúrgica
+                # CORRECCIÓN: No reemplazamos la fila entera para no borrar el RSI o fallar por tamaño.
+                # Solo actualizamos las columnas que trae df_nuevo (Open, High, Low, Close, etc.)
+                for col in df_nuevo.columns:
+                    if col in self.velas.columns:
+                        # Buscamos el índice numérico de la columna para usar iloc
+                        col_idx = self.velas.columns.get_loc(col)
+                        self.velas.iloc[-1, col_idx] = df_nuevo.iloc[0][col]
 
-        if len(self.velas) > 100:
-            self.velas = self.velas.iloc[-100:].reset_index(drop=True)
+        # Mantener memoria controlada (1000 velas)
+        if len(self.velas) > 1000:
+            self.velas = self.velas.iloc[-1000:].reset_index(drop=True)
 
+        # Recalcular indicadores (Aquí se rellena la columna RSI de nuevo)
         self.calcular_indicadores()
         
         if nueva_fila['cerrada']:

@@ -2,6 +2,7 @@
 ccxt==4.1.75
 unicorn-binance-websocket-api==1.46.2
 python-dotenv==1.0.0
+requests
 
 # --- Análisis de Datos ---
 pandas
