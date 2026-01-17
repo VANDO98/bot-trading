@@ -6,7 +6,7 @@ from Core.Utils.Config import Config
 from Core.API.GestorHibrido import GestorHibrido
 from Core.Ejecucion.GestorEjecucion import GestorEjecucion 
 
-from Core.Utils.TradeLogger import TradeLogger # <--- NUEVO
+from Core.Utils.TradeLogger import TradeLogger 
 
 # Estrategias
 from Estrategias.Concretas.EstrategiaRSI import EstrategiaRSI
@@ -15,11 +15,11 @@ from Estrategias.Concretas.EstrategiaRSI_ADX import EstrategiaRSI_ADX
 class BotController:
     """
     ORQUESTADOR FINAL: Datos -> Estrategia -> EJECUCIÓN
-    Fase 6: Incluye Trailing Stop Dinámico (ATR).
+    Fase 6: Incluye Trailing Stop Dinámico (ATR) y Corrección de Tamaño de Posición.
     """
     
     def __init__(self):
-        print(Fore.YELLOW + "🤖 Inicializando BotController v2.4 (TRAILING STOP)...")
+        print(Fore.YELLOW + "🤖 Inicializando BotController v2.5 (CORREGIDO)...")
         
         self.catalogo_estrategias = { 
             "EstrategiaRSI": EstrategiaRSI,
@@ -95,8 +95,7 @@ class BotController:
 
         # --- GESTIÓN DE POSICIÓN (TRAILING STOP & SYNC) ---
         if estrategia.posicion_abierta:
-            # Solo actuamos al cierre de vela para estabilidad (kline_data['x'])
-            # O si quieres tiempo real, quita el if kline_data['x'] (pero cuidado con los API limits)
+            # Solo actuamos al cierre de vela para estabilidad
             if kline_data['x']:
                 
                 # 1. Verificar si seguimos dentro
@@ -142,7 +141,6 @@ class BotController:
         motivo = ""
 
         # --- FASE 3: MAXIMIZACIÓN (ROE > 10%) -> Trailing con ATR ---
-        # Nota: Puedes bajar estos umbrales para probar (ej: 0.01 para 1%)
         if delta_pct >= 0.10: 
             atr = estrategia.calcular_atr(periodo=14) 
             
@@ -189,12 +187,17 @@ class BotController:
 
         lado = "buy" if senal == "COMPRA" else "sell"
         config_cantidad = self.config_pares[simbolo].get('cantidad_operacion', 0)
+        
+        # --- NUEVO: Obtener Apalancamiento Configurado ---
+        apalancamiento = self.config_pares[simbolo].get('apalancamiento', 1) 
+        
         precio_actual = self.gestor_datos.obtener_precio(simbolo)
         
         # Calcular Cantidad
         if isinstance(config_cantidad, str) and '%' in config_cantidad:
+            # --- MODIFICADO: Pasamos el apalancamiento ---
             cantidad_final = self.gestor_ejecucion.calcular_cantidad_por_porcentaje(
-                simbolo, config_cantidad, precio_actual
+                simbolo, config_cantidad, precio_actual, apalancamiento
             )
         else:
             cantidad_final = float(config_cantidad)
@@ -213,14 +216,13 @@ class BotController:
             print(f"{Fore.GREEN}✅ ENTRADA CONFIRMADA: {simbolo} | Precio: {precio_fill}{Style.RESET_ALL}")
             
             # [LOG CSV] Registrar Entrada
-            TradeLogger.registrar(simbolo, f"ENTRADA_{lado.upper()}", precio_fill, f"Cant: {cantidad_final}")
+            TradeLogger.registrar(simbolo, f"ENTRADA_{lado.upper()}", precio_fill, f"Cant: {cantidad_final} | Lev: {apalancamiento}x")
 
             # --- PROTECCIONES INICIALES ---
             config_global = Config.cargar_configuracion()
             riesgo = config_global.get('sistema_riesgo', {})
             sl_pct = riesgo.get('stop_loss_pct', 0.02)
             
-            # CAMBIO CLAVE: TP muy lejano (50%) para permitir que el Trailing actúe
             print(f"🛡️ Colocando SL Inicial ({sl_pct*100}%) y TP Extendido (50%)")
 
             self.gestor_ejecucion.colocar_ordenes_salida(
@@ -229,7 +231,7 @@ class BotController:
                 cantidad=cantidad_final,
                 precio_entrada=precio_fill,
                 sl_pct=sl_pct,
-                tp_pct=0.50 # <--- 50% de ganancia (virtualmente infinito para scalping)
+                tp_pct=0.50 
             )
 
             # [LOG CSV] Registrar SL Inicial

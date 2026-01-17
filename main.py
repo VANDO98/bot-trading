@@ -22,6 +22,13 @@ def obtener_color_rsi(rsi_val, sobreventa, sobrecompra):
     elif rsi_val >= sobrecompra: return Fore.RED + Style.BRIGHT
     else: return Fore.WHITE
 
+def obtener_color_adx(adx_val, minimo):
+    """
+    Verde si hay tendencia fuerte (> min), Gris si está lateral.
+    """
+    if adx_val >= minimo: return Fore.GREEN + Style.BRIGHT
+    return Fore.LIGHTBLACK_EX # Gris oscurito para indicar "sin fuerza"
+
 def formatear_precio(precio):
     if precio < 1.0: return f"{precio:.5f}"
     if precio < 100: return f"{precio:.3f}"
@@ -42,11 +49,13 @@ def ciclo_principal():
         while True:
             limpiar_pantalla()
             
-            # --- HEADER ---
-            print(Back.BLUE + Fore.WHITE + f" 🤖 BOT TRADING V2.3 | ESTRATEGIA: RSI | {time.strftime('%H:%M:%S')} ".center(80))
-            print(Back.BLACK + "-" * 80)
-            print(f"{'PAR':<12} | {'PRECIO':<12} | {'RSI (14)':<10} | {'ESTADO':<15} | {'SEÑAL'}")
-            print("-" * 80)
+            # --- HEADER --- (Ampliado a 95 caracteres para que quepa el ADX)
+            ancho = 95
+            print(Back.BLUE + Fore.WHITE + f" 🤖 BOT TRADING V2.3 | RSI + ADX | {time.strftime('%H:%M:%S')} ".center(ancho))
+            print(Back.BLACK + "-" * ancho)
+            # Añadida columna ADX
+            print(f"{'PAR':<12} | {'PRECIO':<12} | {'RSI (14)':<10} | {'ADX (14)':<10} | {'ESTADO':<15} | {'SEÑAL'}")
+            print("-" * ancho)
 
             # --- FILAS ---
             pares_ordenados = sorted(bot.estrategias_activas.keys())
@@ -55,43 +64,73 @@ def ciclo_principal():
                 estrategia = bot.estrategias_activas[par]
                 precio_real = bot.gestor_datos.obtener_precio(par)
                 
-                # Recuperar datos
+                # Variables por defecto
                 rsi_str = "Calc..."
+                adx_str = "N/A"
                 color_rsi = Fore.CYAN
+                color_adx = Fore.WHITE
                 estado_txt = "Esperando..."
                 senal_txt = ""
 
-                if not estrategia.velas.empty and 'RSI' in estrategia.velas.columns:
-                    val_rsi = estrategia.velas.iloc[-1]['RSI']
-                    if pd.notna(val_rsi):
-                        # Leemos los parámetros reales de la estrategia para colorear bien
-                        s_venta = estrategia.parametros.get('rsi_sobreventa', 30)
-                        s_compra = estrategia.parametros.get('rsi_sobrecompra', 70)
-                        
-                        color_rsi = obtener_color_rsi(val_rsi, s_venta, s_compra)
-                        rsi_str = f"{val_rsi:.2f}"
-                        
-                        # Usamos la memoria de la estrategia para mostrar el estado
-                        if estrategia.posicion_abierta:
-                             estado_txt = f"{Back.MAGENTA}{Fore.WHITE} EN MERCADO "
-                        elif val_rsi <= s_venta:
-                            estado_txt = f"{Fore.GREEN}SOBREVENTA"
-                            senal_txt = f"{Back.GREEN}{Fore.WHITE} COMPRA "
-                        elif val_rsi >= s_compra:
-                            estado_txt = f"{Fore.RED}SOBRECOMPRA"
-                            senal_txt = f"{Back.RED}{Fore.WHITE} VENTA "
-                        else:
-                            estado_txt = f"{Fore.WHITE}NEUTRO"
+                if not estrategia.velas.empty:
+                    # 1. DATOS RSI
+                    if 'RSI' in estrategia.velas.columns:
+                        val_rsi = estrategia.velas.iloc[-1]['RSI']
+                        if pd.notna(val_rsi):
+                            s_venta = estrategia.parametros.get('rsi_sobreventa', 30)
+                            s_compra = estrategia.parametros.get('rsi_sobrecompra', 70)
+                            color_rsi = obtener_color_rsi(val_rsi, s_venta, s_compra)
+                            rsi_str = f"{val_rsi:.2f}"
+                            
+                            # Lógica de Estado RSI
+                            if val_rsi <= s_venta:
+                                estado_txt = f"{Fore.GREEN}SOBREVENTA"
+                            elif val_rsi >= s_compra:
+                                estado_txt = f"{Fore.RED}SOBRECOMPRA"
+                            else:
+                                estado_txt = f"{Fore.WHITE}NEUTRO"
 
-                # Renderizar
+                    # 2. DATOS ADX (Nuevo)
+                    if 'ADX' in estrategia.velas.columns:
+                        val_adx = estrategia.velas.iloc[-1]['ADX']
+                        if pd.notna(val_adx):
+                            min_adx = estrategia.parametros.get('adx_minimo', 25)
+                            color_adx = obtener_color_adx(val_adx, min_adx)
+                            adx_str = f"{val_adx:.2f}"
+
+                    # 3. ESTADO GLOBAL (Si hay posición abierta manda sobre todo)
+                    if estrategia.posicion_abierta:
+                         estado_txt = f"{Back.MAGENTA}{Fore.WHITE} EN MERCADO "
+                         senal_txt = "" # Limpiamos señal si ya estamos dentro
+                    
+                    # 4. Generar Señal Visual (Solo si no estamos dentro)
+                    elif 'RSI' in estrategia.velas.columns and 'ADX' in estrategia.velas.columns:
+                         # Recuperar valores numéricos de nuevo por seguridad
+                         v_rsi = estrategia.velas.iloc[-1]['RSI']
+                         v_adx = estrategia.velas.iloc[-1]['ADX']
+                         
+                         if pd.notna(v_rsi) and pd.notna(v_adx):
+                            s_venta = estrategia.parametros.get('rsi_sobreventa', 30)
+                            s_compra = estrategia.parametros.get('rsi_sobrecompra', 70)
+                            min_adx = estrategia.parametros.get('adx_minimo', 25)
+                            
+                            # Lógica de señal COMPLETA
+                            if v_adx > min_adx: # Solo si hay fuerza
+                                if v_rsi < s_venta:
+                                    senal_txt = f"{Back.GREEN}{Fore.WHITE} COMPRA "
+                                elif v_rsi > s_compra:
+                                    senal_txt = f"{Back.RED}{Fore.WHITE} VENTA "
+
+                # Renderizar Fila
                 p_str = formatear_precio(precio_real)
                 print(f"{Fore.CYAN}{par:<12} {Style.RESET_ALL}| "
                       f"{p_str:<12} | "
                       f"{color_rsi}{rsi_str:<10} {Style.RESET_ALL}| "
+                      f"{color_adx}{adx_str:<10} {Style.RESET_ALL}| " # <--- Nueva columna ADX
                       f"{estado_txt:<24} | " 
                       f"{senal_txt}")
 
-            print("-" * 80)
+            print("-" * ancho)
             print(f"{Fore.YELLOW}Monitor activo. Presiona Ctrl+C para detener.")
             
             time.sleep(1)
@@ -114,8 +153,6 @@ def main():
             
         except KeyboardInterrupt:
             print("\n🛑 Deteniendo bot por usuario (Forzando cierre)...")
-            # ESTO ES LO QUE ARREGLA EL CONGELAMIENTO
-            # Mata el proceso y todos sus hilos inmediatamente
             try:
                 sys.exit(0)
             except SystemExit:

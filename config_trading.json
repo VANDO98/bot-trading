@@ -3,7 +3,7 @@
   "configuracion_global": {
     "modo_ejecucion": "testnet",
     "moneda_base": "USDT",
-    "max_trades_abiertos": 3,
+    "max_trades_abiertos": 5,
     "exchanges_habilitados": ["binance"]
   },
   "sistema_riesgo": {
@@ -20,7 +20,7 @@
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "5m",
-      "apalancamiento": 10,
+      "apalancamiento": 15,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
@@ -48,7 +48,7 @@
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "5m",
-      "apalancamiento": 8,
+      "apalancamiento": 15,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
@@ -62,7 +62,7 @@
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "5m",
-      "apalancamiento": 8,
+      "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
@@ -76,7 +76,7 @@
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "5m",
-      "apalancamiento": 5,
+      "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
@@ -90,7 +90,7 @@
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "5m",
-      "apalancamiento": 8,
+      "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
@@ -104,7 +104,7 @@
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "5m",
-      "apalancamiento": 8,
+      "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
@@ -118,7 +118,7 @@
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
       "timeframe": "5m",
-      "apalancamiento": 5,
+      "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
@@ -132,7 +132,7 @@
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
       "timeframe": "5m",
-      "apalancamiento": 5,
+      "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
@@ -146,7 +146,7 @@
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
       "timeframe": "5m",
-      "apalancamiento": 5,
+      "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
