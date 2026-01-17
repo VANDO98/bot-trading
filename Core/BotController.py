@@ -10,6 +10,7 @@ from Core.Utils.TradeLogger import TradeLogger # <--- NUEVO
 
 # Estrategias
 from Estrategias.Concretas.EstrategiaRSI import EstrategiaRSI
+from Estrategias.Concretas.EstrategiaRSI_ADX import EstrategiaRSI_ADX
 
 class BotController:
     """
@@ -20,7 +21,11 @@ class BotController:
     def __init__(self):
         print(Fore.YELLOW + "🤖 Inicializando BotController v2.4 (TRAILING STOP)...")
         
-        self.catalogo_estrategias = { "EstrategiaRSI": EstrategiaRSI }
+        self.catalogo_estrategias = { 
+            "EstrategiaRSI": EstrategiaRSI,
+            "EstrategiaRSI_ADX": EstrategiaRSI_ADX
+        }
+        
         self.gestor_datos = GestorHibrido()
         self.gestor_ejecucion = GestorEjecucion()
         

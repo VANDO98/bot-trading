@@ -21,3 +21,4 @@ config.ini
 # --- Logs y Bases de datos locales ---
 *.log
 *.sqlite3
+*.csv

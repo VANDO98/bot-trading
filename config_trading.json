@@ -17,122 +17,142 @@
   "pares": {
     "BTC/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
-      "timeframe": "1m",
+      "timeframe": "5m",
       "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70
+        "rsi_sobrecompra": 70,
+        "adx_periodo": 14,
+        "adx_minimo": 25
       }
     },
     "ETH/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
-      "timeframe": "1m",
+      "timeframe": "5m",
       "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70
+        "rsi_sobrecompra": 70,
+        "adx_periodo": 14,
+        "adx_minimo": 25
       }
     },
     "BNB/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
-      "timeframe": "1m",
+      "timeframe": "5m",
       "apalancamiento": 8,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70
+        "rsi_sobrecompra": 70,
+        "adx_periodo": 14,
+        "adx_minimo": 25
       }
     },
     "ADA/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
-      "timeframe": "1m",
+      "timeframe": "5m",
       "apalancamiento": 8,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70
+        "rsi_sobrecompra": 70,
+        "adx_periodo": 14,
+        "adx_minimo": 25
       }
     },
     "ZEC/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
-      "timeframe": "1m",
+      "timeframe": "5m",
       "apalancamiento": 5,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70
+        "rsi_sobrecompra": 70,
+        "adx_periodo": 14,
+        "adx_minimo": 25
       }
     },
     "AVAX/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
-      "timeframe": "1m",
+      "timeframe": "5m",
       "apalancamiento": 8,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70
+        "rsi_sobrecompra": 70,
+        "adx_periodo": 14,
+        "adx_minimo": 25
       }
     },
     "POL/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
-      "timeframe": "1m",
+      "timeframe": "5m",
       "apalancamiento": 8,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70
+        "rsi_sobrecompra": 70,
+        "adx_periodo": 14,
+        "adx_minimo": 25
       }
     },
     "DOGE/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
-      "timeframe": "1m",
+      "timeframe": "5m",
       "apalancamiento": 5,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70
+        "rsi_sobrecompra": 70,
+        "adx_periodo": 14,
+        "adx_minimo": 25
       }
     },
     "1000PEPE/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
-      "timeframe": "1m",
+      "timeframe": "5m",
       "apalancamiento": 5,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70
+        "rsi_sobrecompra": 70,
+        "adx_periodo": 14,
+        "adx_minimo": 25
       }
     },
     "1000SHIB/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
-      "timeframe": "1m",
+      "timeframe": "5m",
       "apalancamiento": 5,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70
+        "rsi_sobrecompra": 70,
+        "adx_periodo": 14,
+        "adx_minimo": 25
       }
     }
   }
