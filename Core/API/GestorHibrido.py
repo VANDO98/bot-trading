@@ -1,6 +1,6 @@
 import time
 import logging
-import requests  # <--- NUEVA DEPENDENCIA
+import requests  # Mantenemos tu dependencia original
 from unicorn_binance_websocket_api.manager import BinanceWebSocketApiManager
 from Core.Utils.Config import Config
 
@@ -9,15 +9,19 @@ logging.getLogger("unicorn_binance_websocket_api").setLevel(logging.ERROR)
 
 class GestorHibrido:
     """
-    Gestor Híbrido:
-    1. REST API -> Descarga historial inicial (Pre-carga).
-    2. WebSocket -> Mantiene datos en vivo.
+    Gestor Híbrido v2.5:
+    1. REST API -> Descarga historial inicial (Pre-carga) usando requests.
+    2. WebSocket -> Mantiene datos en vivo (Multiplexado 1 socket para N pares).
     """
     def __init__(self):
         self.precios_actuales = {} 
         self.ultimas_actualizaciones = {} 
         self.stream_activo = False
         self.callback_kline = None
+        
+        # Mapa para traducir nombres (Corrección del precio 0.0000)
+        # Ej: 'btcusdt' -> 'BTC/USDT'
+        self.mapa_simbolos = {}
         
         # Selección de URLs
         if Config.USAR_TESTNET:
@@ -34,9 +38,10 @@ class GestorHibrido:
             process_stream_data=self.procesar_msg 
         )
 
-    def obtener_velas_historicas(self, simbolo, timeframe, limite=100):
+    def obtener_velas_historicas(self, simbolo, timeframe, limite=1000):
         """
-        Descarga las últimas 'limite' velas vía HTTP para calentar indicadores.
+        Descarga las últimas 'limite' velas vía HTTP.
+        (MANTENIDO ORIGINAL SEGÚN SOLICITUD)
         """
         # Formato Binance REST: BTCUSDT (sin barra)
         symbol_clean = simbolo.replace('/', '').upper()
@@ -48,7 +53,7 @@ class GestorHibrido:
         }
         
         try:
-            # Petición síncrona (bloquea hasta recibir datos)
+            # Petición síncrona
             resp = requests.get(self.rest_url, params=params, timeout=5)
             data = resp.json()
             
@@ -78,56 +83,90 @@ class GestorHibrido:
 
     def iniciar_flujo_hibrido(self, estrategias_dict, callback_kline):
         """
-        Inicia suscripciones WS.
+        Versión Optimizada: Usa MULTIPLEXADO y MAPEO.
         """
         self.callback_kline = callback_kline
-        print("📡 Iniciando WebSockets...")
         
-        for par, config in estrategias_dict.items():
-            if not config.get("activo", False): 
-                continue
-            
-            symbol = par.replace('/', '').lower()
-            tf = config['timeframe']
-            
-            # Inicializamos memoria
-            self.precios_actuales[par] = 0.0
-            
-            # 1. Stream Ticker
-            self.manager.create_stream(channels=['ticker'], markets=[symbol], output="dict")
+        # 1. Preparar listas y Mapa de Traducción
+        canales = set()
+        mercados = []
+        
+        print(f"🔌 Configurando Multiplexado para {len(estrategias_dict)} pares...")
 
-            # 2. Stream Kline
-            self.manager.create_stream(channels=[f'kline_{tf}'], markets=[symbol], output="dict")
+        for simbolo_interno, config in estrategias_dict.items():
+            # Generamos nombres API: 'BTC/USDT' -> 'btcusdt'
+            s_api = simbolo_interno.replace('/', '').lower()
             
-        self.stream_activo = True
-        print(f"✅ WebSockets conectados.")
+            # GUARDAMOS LA TRADUCCIÓN (CRÍTICO PARA ARREGLAR PRECIOS EN 0)
+            self.mapa_simbolos[s_api] = simbolo_interno         # 'btcusdt' -> 'BTC/USDT'
+            self.mapa_simbolos[s_api.upper()] = simbolo_interno # 'BTCUSDT' -> 'BTC/USDT'
+            
+            mercados.append(s_api)
+            tf = config['timeframe']
+            canales.add(f"kline_{tf}")
+            
+            # Inicializamos precio en el dict para que exista la clave
+            self.precios_actuales[simbolo_interno] = 0.0
+
+        try:
+            # 2. CREAR UN SOLO SOCKET (MULTIPLEXADO)
+            # Pasamos lista de canales y lista de mercados. La librería los combina.
+            self.manager.create_stream(
+                channels=list(canales), 
+                markets=mercados, 
+                stream_label="FlujoMaestro",
+                output="dict"
+            )
+            self.stream_activo = True
+            print(f"✅ Socket Maestro Iniciado: Escuchando {len(mercados)} mercados.")
+            
+        except Exception as e:
+            print(f"❌ Error al iniciar socket maestro: {e}")
 
     def procesar_msg(self, msg, **kwargs):
-        """Router de mensajes WS"""
+        """
+        Router de mensajes WS.
+        Maneja la estructura multiplexada y traduce símbolos.
+        """
+        # Estructura típica multiplexada: {'stream': '...', 'data': {...}}
         if not isinstance(msg, dict): return
+        
+        # Extraemos la carga útil
         payload = msg.get('data', msg)
         if not isinstance(payload, dict): return
 
+        # Obtenemos evento y símbolo CRUDO de la API (ej: 'BTCUSDT')
         evento = payload.get('e')
         symbol_raw = payload.get('s')
+        
+        # Validaciones básicas
+        if not symbol_raw: return
 
-        if not symbol_raw or not evento: return
+        # --- TRADUCCIÓN DE NOMBRE (ARREGLO DEL 0.0000) ---
+        # Buscamos 'BTCUSDT' en el mapa -> devuelve 'BTC/USDT'
+        # Si no existe, usamos el raw por seguridad.
+        symbol_formateado = self.mapa_simbolos.get(symbol_raw, symbol_raw)
 
-        if symbol_raw.endswith('USDT'):
-            symbol_formateado = f"{symbol_raw[:-4]}/{symbol_raw[-4:]}"
-        else:
-            symbol_formateado = symbol_raw
-
-        if evento == '24hrTicker':
-            self.precios_actuales[symbol_formateado] = float(payload['c'])
-            self.ultimas_actualizaciones[symbol_formateado] = time.time()
-
-        elif evento == 'kline':
+        # Proceasamiento Kline (Velas)
+        if evento == 'kline':
             kline_data = payload['k']
+            
+            # Actualizar precio actual para el Dashboard
+            precio_cierre = float(kline_data['c'])
+            self.precios_actuales[symbol_formateado] = precio_cierre
+            self.ultimas_actualizaciones[symbol_formateado] = time.time()
+            
+            # Enviar a la estrategia
             if self.callback_kline:
                 self.callback_kline(symbol_formateado, kline_data)
 
+        # Procesamiento Ticker (si estuvieras suscrito a tickers, opcional)
+        elif evento == '24hrTicker':
+            precio = float(payload['c'])
+            self.precios_actuales[symbol_formateado] = precio
+
     def obtener_precio(self, symbol):
+        # Devuelve el precio usando la clave correcta (ej: BTC/USDT)
         return self.precios_actuales.get(symbol, 0.0)
 
     def detener_todo(self):

@@ -188,3 +188,71 @@ class GestorEjecucion:
         except Exception as e:
             print(Fore.RED + f"⚠️ Error consultando posición de {simbolo}: {e}")
             return False
+        
+    # --- MÉTODOS PARA TRAILING STOP (FASE 6) ---
+
+    def obtener_datos_posicion(self, simbolo):
+        """
+        Devuelve datos críticos para calcular el Trailing Stop:
+        - entryPrice: Precio de entrada promedio.
+        - amount: Tamaño de la posición.
+        - side: 'long' o 'short' (derivado de la cantidad).
+        - markPrice: Precio actual de mercado.
+        """
+        try:
+            # Normalización de símbolo para búsqueda robusta
+            target = simbolo.replace('/', '').upper()
+            posiciones = self.exchange.fetch_positions()
+            
+            for pos in posiciones:
+                s_api = pos['symbol'].replace('/', '').upper()
+                if s_api == target or s_api.startswith(target + ":"):
+                    amt = float(pos['contracts'])
+                    if abs(amt) > 0:
+                        return {
+                            'entryPrice': float(pos['entryPrice']),
+                            'amount': abs(amt),
+                            'side': 'buy' if amt > 0 else 'sell',
+                            'markPrice': float(pos.get('markPrice', 0)) # Vital para ROE
+                        }
+            return None
+        except Exception as e:
+            print(Fore.RED + f"⚠️ Error obteniendo datos posición {simbolo}: {e}")
+            return None
+
+    def obtener_orden_stop_loss(self, simbolo):
+        """Busca la ID de la orden STOP_MARKET activa."""
+        try:
+            ordenes = self.exchange.fetch_open_orders(simbolo)
+            for o in ordenes:
+                # Buscamos la orden que es STOP y que reduce posición
+                if o['type'] == 'STOP_MARKET' and o['reduceOnly']:
+                    return o
+            return None
+        except Exception as e:
+            print(Fore.RED + f"⚠️ No encuentro el Stop Loss de {simbolo}: {e}")
+            return None
+
+    def modificar_stop_loss(self, simbolo, orden_id, nuevo_precio_stop):
+        """
+        Operación Atómica: Edita el precio del Stop Loss existente.
+        """
+        try:
+            # Binance Futures permite editar precio
+            nuevo_precio = self.exchange.price_to_precision(simbolo, nuevo_precio_stop)
+            
+            print(Fore.MAGENTA + f"🔄 Actualizando SL en {simbolo} a ${nuevo_precio}...")
+            
+            self.exchange.edit_order(
+                id=orden_id,
+                symbol=simbolo,
+                type='STOP_MARKET',
+                side=None, # No se cambia el lado
+                amount=None, # No se cambia la cantidad
+                price=None,
+                params={'stopPrice': nuevo_precio}
+            )
+            return True
+        except Exception as e:
+            print(Fore.RED + f"❌ Falló edición de SL: {e}")
+            return False

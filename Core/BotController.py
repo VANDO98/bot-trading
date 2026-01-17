@@ -6,16 +6,19 @@ from Core.Utils.Config import Config
 from Core.API.GestorHibrido import GestorHibrido
 from Core.Ejecucion.GestorEjecucion import GestorEjecucion 
 
+from Core.Utils.TradeLogger import TradeLogger # <--- NUEVO
+
 # Estrategias
 from Estrategias.Concretas.EstrategiaRSI import EstrategiaRSI
 
 class BotController:
     """
-    ORQUESTADOR FINAL: Datos -> Estrategia -> EJECUCIÓN (+ Sincronización)
+    ORQUESTADOR FINAL: Datos -> Estrategia -> EJECUCIÓN
+    Fase 6: Incluye Trailing Stop Dinámico (ATR).
     """
     
     def __init__(self):
-        print(Fore.YELLOW + "🤖 Inicializando BotController v2.3 (FULL AUTO)...")
+        print(Fore.YELLOW + "🤖 Inicializando BotController v2.4 (TRAILING STOP)...")
         
         self.catalogo_estrategias = { "EstrategiaRSI": EstrategiaRSI }
         self.gestor_datos = GestorHibrido()
@@ -42,9 +45,6 @@ class BotController:
                 print(f"   ✅ {par} -> Lista ({nombre_clase})")
 
     def iniciar(self):
-        """
-        Arranca el sistema verificando estado en Binance.
-        """
         if not self.estrategias_activas:
             print(Fore.RED + "❌ No hay estrategias. Abortando.")
             return
@@ -56,8 +56,7 @@ class BotController:
             lev = self.config_pares[par].get('apalancamiento', 1)
             self.gestor_ejecucion.configurar_apalancamiento(par, lev)
 
-            # 2. SINCRONIZACIÓN DE ESTADO (AQUÍ ESTÁ LO NUEVO) 👁️
-            # Preguntamos a Binance: "¿Estamos dentro?"
+            # 2. Sincronización de Estado
             esta_dentro = self.gestor_ejecucion.obtener_posicion_abierta(par)
             estrategia.posicion_abierta = esta_dentro
             
@@ -76,45 +75,114 @@ class BotController:
 
         print(Fore.GREEN + "✨ Todo sincronizado.\n")
 
-        # 4. Iniciar WebSockets
         self.gestor_datos.iniciar_flujo_hibrido(
             estrategias_dict=self.config_pares,
             callback_kline=self.procesar_vela
         )
-        print(Fore.GREEN + "🚀 Bot Operativo y Sincronizado.")
+        print(Fore.GREEN + "🚀 Bot Operativo y Vigilando.")
 
     def procesar_vela(self, simbolo, kline_data):
         """
-        Lógica Principal con 'Watchdog' de estado.
+        Lógica Principal: Señales + Trailing Stop
         """
         estrategia = self.estrategias_activas.get(simbolo)
         if not estrategia: return
 
-        # --- MONITOR DE SALIDA (AQUÍ ESTÁ LO NUEVO) ---
-        # Si el bot cree que tiene posición, verifica si el mercado la cerró (TP/SL)
+        # --- GESTIÓN DE POSICIÓN (TRAILING STOP & SYNC) ---
         if estrategia.posicion_abierta:
-            if kline_data['x']: # Solo verificamos al cierre de vela para no saturar la API
-                sigue_abierta = self.gestor_ejecucion.obtener_posicion_abierta(simbolo)
+            # Solo actuamos al cierre de vela para estabilidad (kline_data['x'])
+            # O si quieres tiempo real, quita el if kline_data['x'] (pero cuidado con los API limits)
+            if kline_data['x']:
                 
+                # 1. Verificar si seguimos dentro
+                sigue_abierta = self.gestor_ejecucion.obtener_posicion_abierta(simbolo)
                 if not sigue_abierta:
-                    print(f"{Fore.YELLOW}🔓 Posición en {simbolo} ya no existe (SL/TP ejecutado). Bot liberado.")
+                    print(f"{Fore.YELLOW}🔓 Posición cerrada en {simbolo}. Bot libre.")
                     estrategia.posicion_abierta = False
-        # ---------------------------------------------
+                    return
 
-        # 1. Pensar
-        senal = estrategia.recibir_vela(simbolo, kline_data)
+                # 2. Obtener datos para el Trailing
+                datos_pos = self.gestor_ejecucion.obtener_datos_posicion(simbolo)
+                if datos_pos:
+                    self.aplicar_trailing_stop(simbolo, estrategia, datos_pos)
         
-        # 2. Actuar
-        if senal in ["COMPRA", "VENTA"]:
-            self.gestionar_ejecucion(simbolo, senal, estrategia)
+        # --------------------------------------------------
+
+        # Lógica de Entrada (Solo si estamos LIBRES)
+        if not estrategia.posicion_abierta:
+            senal = estrategia.recibir_vela(simbolo, kline_data)
+            if senal in ["COMPRA", "VENTA"]:
+                self.gestionar_ejecucion(simbolo, senal, estrategia)
+
+    def aplicar_trailing_stop(self, simbolo, estrategia, datos_pos):
+        """
+        Lógica de Trailing Stop Universal (Basada en ATR).
+        """
+        entry_price = datos_pos['entryPrice']
+        mark_price = datos_pos['markPrice']
+        lado = datos_pos['side']
+        
+        # Calcular ROE (Retorno aproximado sobre precio)
+        if lado == 'buy':
+            delta_pct = (mark_price - entry_price) / entry_price
+        else:
+            delta_pct = (entry_price - mark_price) / entry_price
+
+        # Obtener SL actual
+        orden_sl = self.gestor_ejecucion.obtener_orden_stop_loss(simbolo)
+        if not orden_sl: return
+        sl_actual = float(orden_sl['stopPrice'])
+        
+        nuevo_sl = None
+        motivo = ""
+
+        # --- FASE 3: MAXIMIZACIÓN (ROE > 10%) -> Trailing con ATR ---
+        # Nota: Puedes bajar estos umbrales para probar (ej: 0.01 para 1%)
+        if delta_pct >= 0.10: 
+            atr = estrategia.calcular_atr(periodo=14) 
+            
+            if atr > 0:
+                distancia = 2 * atr # Distancia de 2 ATRs
+                
+                if lado == 'buy':
+                    target = mark_price - distancia
+                    if target > sl_actual: # Solo subir
+                        nuevo_sl = target
+                        motivo = f"Trailing ATR (ROE {delta_pct*100:.1f}%)"
+                else: # Short
+                    target = mark_price + distancia
+                    if target < sl_actual: # Solo bajar
+                        nuevo_sl = target
+                        motivo = f"Trailing ATR (ROE {delta_pct*100:.1f}%)"
+        
+        # --- FASE 2: ASEGURAMIENTO (ROE > 7%) -> Breakeven ---
+        elif delta_pct >= 0.07:
+            margen = entry_price * 0.001 # +0.1% para cubrir comisiones
+            
+            if lado == 'buy':
+                target = entry_price + margen
+                if target > sl_actual: 
+                    nuevo_sl = target
+                    motivo = "Breakeven"
+            else:
+                target = entry_price - margen
+                if target < sl_actual: 
+                    nuevo_sl = target
+                    motivo = "Breakeven"
+
+        # Ejecutar modificación
+        if nuevo_sl:
+            print(f"{Fore.CYAN}🚀 {motivo}: Moviendo SL de {sl_actual} a {nuevo_sl}")
+            self.gestor_ejecucion.modificar_stop_loss(simbolo, orden_sl['id'], nuevo_sl)
+
+            # [LOG CSV] Registrar el Movimiento
+            TradeLogger.registrar(simbolo, "TRAILING_UPDATE", nuevo_sl, f"{motivo} (Antes: {sl_actual})")
+
 
     def gestionar_ejecucion(self, simbolo, senal, estrategia):
-        if estrategia.posicion_abierta:
-            return 
+        if estrategia.posicion_abierta: return 
 
         lado = "buy" if senal == "COMPRA" else "sell"
-        
-        # Cargar configuración
         config_cantidad = self.config_pares[simbolo].get('cantidad_operacion', 0)
         precio_actual = self.gestor_datos.obtener_precio(simbolo)
         
@@ -135,19 +203,20 @@ class BotController:
         
         if orden:
             estrategia.posicion_abierta = True
-            
             precio_fill = float(orden.get('average', 0.0))
             if precio_fill == 0.0: precio_fill = precio_actual
-
             print(f"{Fore.GREEN}✅ ENTRADA CONFIRMADA: {simbolo} | Precio: {precio_fill}{Style.RESET_ALL}")
             
-            # Colocar SL / TP
+            # [LOG CSV] Registrar Entrada
+            TradeLogger.registrar(simbolo, f"ENTRADA_{lado.upper()}", precio_fill, f"Cant: {cantidad_final}")
+
+            # --- PROTECCIONES INICIALES ---
             config_global = Config.cargar_configuracion()
             riesgo = config_global.get('sistema_riesgo', {})
             sl_pct = riesgo.get('stop_loss_pct', 0.02)
-            tp_pct = riesgo.get('take_profit_pct', 0.04)
-
-            print(f"🛡️ Colocando SL ({sl_pct*100}%) y TP ({tp_pct*100}%)")
+            
+            # CAMBIO CLAVE: TP muy lejano (50%) para permitir que el Trailing actúe
+            print(f"🛡️ Colocando SL Inicial ({sl_pct*100}%) y TP Extendido (50%)")
 
             self.gestor_ejecucion.colocar_ordenes_salida(
                 simbolo=simbolo,
@@ -155,8 +224,13 @@ class BotController:
                 cantidad=cantidad_final,
                 precio_entrada=precio_fill,
                 sl_pct=sl_pct,
-                tp_pct=tp_pct
+                tp_pct=0.50 # <--- 50% de ganancia (virtualmente infinito para scalping)
             )
+
+            # [LOG CSV] Registrar SL Inicial
+            precio_sl_inicial = precio_fill * (1 - sl_pct) if lado == 'buy' else precio_fill * (1 + sl_pct)
+            TradeLogger.registrar(simbolo, "SL_INICIAL", precio_sl_inicial, f"Distancia: {sl_pct*100}%")
+
         else:
             print(Fore.RED + "❌ ERROR AL ENTRAR.")
 

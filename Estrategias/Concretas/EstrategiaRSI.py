@@ -1,59 +1,48 @@
-import pandas as pd
+import pandas as pd  # <--- ESTO FALTABA
 import pandas_ta as ta
-# Ajustamos el import para que encuentre EstrategiaBase en la carpeta superior
 from Estrategias.EstrategiaBase import EstrategiaBase
 
 class EstrategiaRSI(EstrategiaBase):
-    """
-    Estrategia Clásica de RSI (Mean Reversion).
-    """
+    
+    def __init__(self, nombre, parametros_json):
+        # Inicializa la clase madre correctamente
+        super().__init__(nombre, parametros_json)
 
     def calcular_indicadores(self):
         """
-        Calcula el RSI manejando incompatibilidades de versiones de Pandas.
+        Implementación concreta: Calcula solo el RSI.
+        Se llama automáticamente desde 'recibir_vela' de la clase madre.
         """
         periodo = self.parametros.get('rsi_periodo', 14)
-
-        if len(self.velas) < periodo:
-            return
-
-        try:
-            # 1. Calculamos RSI usando la función directa (más estable que .ta.rsi)
-            rsi_resultado = ta.rsi(self.velas['close'], length=periodo)
-
-            # 2. CORRECCIÓN DE ERROR (Pandas 2.x vs pandas-ta)
-            # Si devuelve un DataFrame (tabla), lo convertimos a Serie (columna)
-            if isinstance(rsi_resultado, pd.DataFrame):
-                rsi_series = rsi_resultado.iloc[:, 0] # Tomamos la primera columna
-            else:
-                rsi_series = rsi_resultado
-
-            # 3. Asignamos a nuestra columna interna
-            self.velas['RSI'] = rsi_series
-            
-        except Exception as e:
-            # Imprimimos el error completo para debug si vuelve a pasar
-            print(f"⚠️ Error calculando RSI: {e}")
+        
+        # Necesitamos mínimas velas
+        if len(self.velas) > periodo:
+            # Usamos pandas_ta sobre la columna 'close'
+            # (Aseguramos que sea una serie de pandas)
+            self.velas['RSI'] = ta.rsi(self.velas['close'], length=periodo)
 
     def generar_senal(self):
         """
-        Analiza el último valor del RSI y emite señal.
+        Implementación concreta: Decide si COMPRA o VENDE.
+        Se llama automáticamente si la vela cerró.
         """
+        # Verificar si existe la columna RSI
         if self.velas.empty or 'RSI' not in self.velas.columns:
             return "NEUTRO"
+            
+        rsi_actual = self.velas['RSI'].iloc[-1]
         
-        rsi_actual = self.velas.iloc[-1]['RSI']
-
+        # Validar que el RSI no sea NaN (pasa al inicio o si faltan datos)
+        # AQUÍ ES DONDE DABA EL ERROR ANTES
         if pd.isna(rsi_actual):
             return "NEUTRO"
 
-        nivel_sobreventa = self.parametros.get('rsi_sobreventa', 30)
-        nivel_sobrecompra = self.parametros.get('rsi_sobrecompra', 70)
-
-        # Lógica de Trading
-        if rsi_actual < nivel_sobreventa:
+        sobreventa = self.parametros.get('rsi_sobreventa', 30)
+        sobrecompra = self.parametros.get('rsi_sobrecompra', 70)
+        
+        if rsi_actual <= sobreventa:
             return "COMPRA"
-        elif rsi_actual > nivel_sobrecompra:
+        elif rsi_actual >= sobrecompra:
             return "VENTA"
-
+            
         return "NEUTRO"
