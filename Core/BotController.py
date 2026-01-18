@@ -22,6 +22,10 @@ class BotController:
     def __init__(self):
         print(Fore.YELLOW + "🤖 Inicializando BotController v2.7 (FULL SAFE)...")
         
+        # --- NUEVO: Control del Dashboard ---
+        self.mostrar_dashboard = False  # Por defecto apagado (Modo Servidor)
+        # ------------------------------------
+
         self.catalogo_estrategias = { 
             "EstrategiaRSI": EstrategiaRSI,
             "EstrategiaRSI_ADX": EstrategiaRSI_ADX
@@ -122,8 +126,15 @@ class BotController:
                     
                     if estado_memoria != estado_real:
                         print(f"{Fore.MAGENTA}⚠️ CORRECCIÓN {par}: Memoria({estado_memoria}) -> Real({estado_real})")
+                        
+                        # Actualizamos la memoria
                         estrategia.posicion_abierta = estado_real
                         cambios += 1
+                        
+                        # 🔥 CORRECCIÓN FANTASMA: Si la realidad es que NO hay posición, limpiamos todo.
+                        if not estado_real:
+                            print(f"{Fore.YELLOW}🧹 Detectado cierre externo en {par}. Borrando TP/SL restantes...")
+                            self.gestor_ejecucion.cancelar_ordenes_pendientes(par)
                 
                 if cambios == 0:
                     print(Fore.GREEN + "✅ Sincronización correcta. Todo en orden.")
@@ -152,15 +163,21 @@ class BotController:
 
         # 3. GESTIÓN DE SALIDA (Trailing Stop)
         # Prioridad absoluta: Si estoy dentro, gestiono la salida independientemente del límite
+        # 3. GESTIÓN DE SALIDA (Trailing Stop)
         if estrategia.posicion_abierta:
             if kline_data['x']: # Cierre de vela
                 # Chequeo rápido de seguridad
                 sigue_abierta = self.gestor_ejecucion.obtener_posicion_abierta(simbolo)
+                
                 if not sigue_abierta:
-                    # Si Binance dice que cerró (SL o TP hit), liberamos memoria
+                    # Si Binance dice que cerró (SL o TP hit), liberamos memoria Y LIMPIAMOS
                     print(f"{Fore.YELLOW}🔓 Posición cerrada externamente en {simbolo}.")
                     estrategia.posicion_abierta = False
-                    return
+                    
+                    # 🔥 CORRECCIÓN FANTASMA: Borrar el TP que sobró
+                    self.gestor_ejecucion.cancelar_ordenes_pendientes(simbolo)
+                    
+                    return # Salimos para no seguir procesando
 
                 datos_pos = self.gestor_ejecucion.obtener_datos_posicion(simbolo)
                 if datos_pos:

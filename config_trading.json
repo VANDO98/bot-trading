@@ -9,10 +9,10 @@
   "sistema_riesgo": {
     "nota": "Valores aplicados en v2.4 (Trailing Stop Activado)",
     "stop_loss_fijo_inicial": 0.98,
-    "activacion_break_even_roe": 0.05,
+    "activacion_break_even_roe": 0.07,
     "trailing_stop_roe": 0.10,
-    "stop_loss_pct": 0.02,
-    "take_profit_pct": 0.04
+    "stop_loss_pct": 0.015,
+    "take_profit_pct": 0.35
   },
   "pares": {
     "BTC/USDT": {

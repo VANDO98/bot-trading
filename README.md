@@ -1,33 +1,67 @@
-# 🤖 Binance Futures Scalping Bot v5.0
-> Sistema automatizado de trading para futuros basado en indicadores técnicos y gestión de riesgo avanzada.
+# 🤖 Evolución ML - Bot de Trading Algorítmico (Beta v2.8)
 
-## 📌 Plan Maestro - Estado del Proyecto
+> Sistema de trading autónomo para Binance Futures con arquitectura híbrida, protecciones de ejecución avanzadas (Cancel & Replace) y visualización en tiempo real.
 
-### Fase 1: Cimientos [COMPLETADO ✅]
-- [x] Conexión robusta con Binance API (REST/WebSocket).
-- [x] Gestor de Configuración dinámico (`.env` y `JSON`).
-- [x] Sistema de Logs Forense.
-- [x] **Gestor de Precisión:** Ajuste automático de decimales (Tick/Step Size).
+![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
+![Binance API](https://img.shields.io/badge/Binance-Futures-yellow.svg)
+![Status](https://img.shields.io/badge/Estado-Producción_Estable-green.svg)
 
-### Fase 2: Ejecución [EN PROCESO 🛠️]
-- [x] **Estrategia Multiactivo:** Soporte para 8+ pares simultáneos.
-- [x] **Entradas Limit:** Implementación de "Timeout Paciente" (180s) para ahorro de fees.
-- [ ] **Dashboard Estático:** Interfaz de terminal profesional (Próxima sesión).
-- [ ] **Control de Posiciones:** Límite estricto de 4 posiciones simultáneas.
-
-### Fase 3: Riesgo y Seguridad [EN PROCESO 🛠️]
-- [x] **Limpieza de Zombies:** Eliminación automática de órdenes huérfanas.
-- [ ] **Trailing Stop:** Lógica de seguimiento de ganancias (Próxima sesión).
-- [ ] **Fix SL Parcial:** Corrección de Stop Loss en llenados no instantáneos.
-- [ ] **Telegram Manager (50%):** Comandos básicos de monitoreo.
+## 🧠 Filosofía del Sistema: "Moon Mode" (Trend Following)
+El bot está diseñado para **dejar correr las ganancias**.
+- **Entrada:** Confirmación algorítmica (RSI + ADX + Acción de Precio).
+- **Salida:**
+  1. **Take Profit Extendido (30%):** Configurado globalmente en JSON para actuar como "Techo de Seguridad" ante pumps violentos.
+  2. **Trailing Stop Dinámico:** El verdadero motor de salida. Persigue el precio protegiendo ganancias (Breakeven al 5%, Trailing al 10%) sin cortar la tendencia prematuramente.
 
 ---
 
-## 🚀 Instalación y Uso
+## 🚀 Innovaciones Técnicas (v2.8)
 
-1. **Requisitos:** Python 3.9+, `python-binance`, `pandas`, `python-dotenv`.
-2. **Configuración:** - Renombrar `.env.example` a `.env` y colocar tus API Keys.
-   - Ajustar pares y temporalidades en `estrategias.json`.
-3. **Ejecución:**
-   ```bash
-   python main.py
+### 1. Ejecución Blindada ("A Prueba de Balas")
+* **Estrategia Cancel & Replace:** Supera las limitaciones de la API de Binance para editar órdenes `STOP_MARKET`, asegurando que el Stop Loss siempre se mueva.
+* **Rollback de Emergencia:** Sistema de seguridad transaccional. Si falla la colocación de un nuevo Stop Loss (por lag o rechazo), el sistema **restaura automáticamente** la orden anterior en milisegundos para nunca dejar la posición desprotegida.
+* **Anti-Desync:** Validación periódica (cada 5 min) que sincroniza la memoria del bot con la blockchain real.
+
+### 2. Gestión de Riesgo
+* **Configuración Centralizada:** Control total de SL/TP y Apalancamiento desde `config_trading.json`.
+* **Lógica Anti-Retroceso:** Algoritmo matemático que garantiza que el Stop Loss solo se mueva a favor de la ganancia.
+
+### 3. Arquitectura del Proyecto
+  
+   bot-trading/
+   ├── Core/
+   │   ├── API/            # Conexión Híbrida (REST + WebSockets)
+   │   ├── Ejecucion/      # Drivers de Órdenes (Lógica Rollback)
+   │   ├── Utils/          # Dashboard.py (Visualización), Logger
+   │   └── BotController.py # Cerebro Orquestador
+   ├── Estrategias/        # Lógica de decisión modular
+   ├── Test/               # Scripts de validación (Sandbox)
+   ├── main.py             # Punto de entrada
+   └── config_trading.json # Configuración de pares y riesgo
+
+### 🛠️ Instalación y Uso
+
+   1. Requisitos:
+      pip install -r requirements.txt
+
+   2. Configuración:
+      *  Archivo .env: Claves BINANCE_API_KEY y BINANCE_SECRET_KEY.
+      *  Archivo config_trading.json: Define tus pares, apalancamiento y el TP objetivo (ej. 0.30).
+
+   3. Ejecución:
+      python main.py
+
+## 📋 Roadmap & Estado
+   [x] Conexión Binance Futures (Estable)
+
+   [x] Protección Rollback (Implementada)
+
+   [x] Trailing Stop (Cancel/Replace Validado)
+
+   [x] Dashboard Visual (Separado y Modular)
+
+   [ ] Módulo Machine Learning (En fase de entrenamiento)
+
+   [ ] Notificaciones Telegram (Pendiente)
+
+⚠️ Disclaimer: Este software opera con dinero real. El trading de futuros conlleva riesgos significativos. Utilizar bajo propia responsabilidad.

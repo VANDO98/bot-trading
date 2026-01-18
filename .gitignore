@@ -36,3 +36,8 @@ Machine_Learning/Data_Procesada/
 
 # --- Carpetas Antiguas ---
 _OLD_v1/
+
+# Ignorar reportes temporales
+temp_*
+*.png
+Reportes/

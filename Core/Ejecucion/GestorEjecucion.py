@@ -353,3 +353,16 @@ class GestorEjecucion:
         except Exception as e:
             print(Fore.RED + f"⚠️ Error en validación masiva de posiciones: {e}")
             return []
+
+    def cancelar_ordenes_pendientes(self, simbolo):
+        """
+        Limpieza: Borra todas las órdenes abiertas (TP, SL, Limit) de un par.
+        Se usa cuando detectamos que la posición se ha cerrado.
+        """
+        try:
+            print(f"🧹 Limpiando órdenes huérfanas en {simbolo}...")
+            self.exchange.cancel_all_orders(simbolo)
+            return True
+        except Exception as e:
+            # Es normal que falle si no había ninguna orden
+            return False
