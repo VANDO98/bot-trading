@@ -185,7 +185,7 @@ class BotController:
 
     def aplicar_trailing_stop(self, simbolo, estrategia, datos_pos):
         """
-        Trailing Stop con ROE REAL (Corregido).
+        Trailing Stop con ROE REAL (Corregido + Protección Volatilidad + Anti-Rechazo Binance).
         """
         entry_price = datos_pos['entryPrice']
         mark_price = datos_pos['markPrice']
@@ -208,25 +208,43 @@ class BotController:
         nuevo_sl = None
         motivo = ""
 
-        # --- FASE A: MAXIMIZACIÓN (ROE > 10%) -> Trailing con ATR ---
+        # --- FASE A: MAXIMIZACIÓN (ROE > 10%) -> Híbrido ATR + Breakeven ---
         if roe_real >= 0.10: 
             atr = estrategia.calcular_atr(periodo=14) 
+            
             if atr > 0:
-                distancia = 2 * atr 
+                distancia_atr = 2 * atr 
+                # Calculamos el Breakeven de seguridad también aquí
+                margen_fee = entry_price * 0.0015 
+
                 if lado == 'buy':
-                    target = mark_price - distancia
-                    if target > sl_actual:
-                        nuevo_sl = target
-                        motivo = f"Trailing ATR (ROE {roe_real*100:.1f}%)"
-                else:
-                    target = mark_price + distancia
-                    if target < sl_actual:
-                        nuevo_sl = target
-                        motivo = f"Trailing ATR (ROE {roe_real*100:.1f}%)"
+                    target_atr = mark_price - distancia_atr
+                    target_be = entry_price + margen_fee
+                    
+                    # LÓGICA DE PROTECCIÓN:
+                    # Elegimos el MAYOR (el que esté más arriba) para asegurar ganancia.
+                    # Si el ATR es muy amplio, al menos nos quedamos en Breakeven.
+                    target_final = max(target_atr, target_be)
+                    
+                    if target_final > sl_actual:
+                        nuevo_sl = target_final
+                        motivo = f"Trailing Dinámico (ROE {roe_real*100:.1f}%)"
+
+                else: # SHORT
+                    target_atr = mark_price + distancia_atr
+                    target_be = entry_price - margen_fee
+                    
+                    # LÓGICA DE PROTECCIÓN:
+                    # Elegimos el MENOR (el que esté más abajo) para asegurar ganancia.
+                    target_final = min(target_atr, target_be)
+                    
+                    if target_final < sl_actual:
+                        nuevo_sl = target_final
+                        motivo = f"Trailing Dinámico (ROE {roe_real*100:.1f}%)"
         
-        # --- FASE B: BREAKEVEN (ROE > 5%) ---
+        # --- FASE B: BREAKEVEN SIMPLE (ROE > 5%) ---
         elif roe_real >= 0.05:
-            # Cubrir fees (aprox 0.15% del precio base suele ser seguro)
+            # Cubrir fees (aprox 0.15% del precio base)
             margen_fee = entry_price * 0.0015 
             
             if lado == 'buy':
@@ -240,11 +258,33 @@ class BotController:
                     nuevo_sl = target
                     motivo = f"Breakeven (ROE {roe_real*100:.1f}%)"
 
+        # Ejecutar modificación si corresponde
         if nuevo_sl:
-            print(f"{Fore.CYAN}🚀 {motivo}: Moviendo SL de {sl_actual} a {nuevo_sl}")
-            self.gestor_ejecucion.modificar_stop_loss(simbolo, orden_sl['id'], nuevo_sl)
-            TradeLogger.registrar(simbolo, "TRAILING_UPDATE", nuevo_sl, f"{motivo}")
-
+            # --- VALIDACIÓN DE DISTANCIA MÍNIMA (Anti-Rechazo Binance) ---
+            # Evita error "Order would trigger immediately" si el precio está muy cerca
+            distancia_seguridad = mark_price * 0.002 # 0.2% de distancia mínima
+            
+            es_seguro = False
+            if lado == 'buy':
+                # En Long, el SL debe estar DEBAJO del precio actual
+                if nuevo_sl < (mark_price - distancia_seguridad):
+                    es_seguro = True
+            else:
+                # En Short, el SL debe estar ENCIMA del precio actual
+                if nuevo_sl > (mark_price + distancia_seguridad):
+                    es_seguro = True
+            
+            if es_seguro:
+                print(f"{Fore.CYAN}🚀 {motivo}: Moviendo SL de {sl_actual} a {nuevo_sl}")
+                
+                # CORRECCIÓN AQUÍ: Pasamos 'lado' como 4to argumento
+                self.gestor_ejecucion.modificar_stop_loss(simbolo, orden_sl['id'], nuevo_sl, lado)
+                
+                TradeLogger.registrar(simbolo, "TRAILING_UPDATE", nuevo_sl, f"{motivo}")
+            else:
+                # (Opcional) Log para saber por qué espera
+                # print(f"{Fore.YELLOW}⚠️ Trailing omitido: El nuevo SL ({nuevo_sl}) está muy cerca del precio actual ({mark_price}). Esperando...")
+                pass
 
     def gestionar_ejecucion(self, simbolo, senal, estrategia):
         if estrategia.posicion_abierta: return 

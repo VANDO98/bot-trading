@@ -13,6 +13,9 @@ class EstrategiaBase(ABC):
         self.velas = pd.DataFrame() 
         self.posicion_abierta = False # Memoria de estado para el BotController
 
+        # --- NUEVA VARIABLE ---
+        self.atr_actual = 0.0 # Aquí guardaremos el último cálculo
+
     # Tienes que agregar 'ejecutar_analisis=True' aquí 👇
     def recibir_vela(self, simbolo, kline_data, ejecutar_analisis=True):
         """Procesa la vela entrante y actualiza el DataFrame interno"""
@@ -68,25 +71,25 @@ class EstrategiaBase(ABC):
         Usado por el BotController para el Trailing Stop.
         """
         if self.velas.empty or len(self.velas) < periodo + 1:
+            self.atr_actual = 0.0 # Reset si no hay datos
             return 0.0
 
         try:
             # Trabajamos con una copia para no ensuciar el DF principal si no queremos
             df = self.velas.copy()
-            
-            # Cálculo manual de ATR para no depender de librerías en la Base
             df['h-l'] = df['high'] - df['low']
             df['h-pc'] = abs(df['high'] - df['close'].shift(1))
             df['l-pc'] = abs(df['low'] - df['close'].shift(1))
-            
             df['tr'] = df[['h-l', 'h-pc', 'l-pc']].max(axis=1)
+            atr_val = df['tr'].rolling(window=periodo).mean().iloc[-1]
             
-            # Media Móvil del TR
-            atr = df['tr'].rolling(window=periodo).mean().iloc[-1]
+            # --- GUARDADO EN MEMORIA ---
+            self.atr_actual = float(atr_val)
             
-            return float(atr)
+            return self.atr_actual
         except Exception as e:
             print(f"⚠️ Error calculando ATR en {self.nombre}: {e}")
+            self.atr_actual = 0.0
             return 0.0
     # ---------------------------------------
 

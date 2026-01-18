@@ -3,7 +3,7 @@
   "configuracion_global": {
     "modo_ejecucion": "testnet",
     "moneda_base": "USDT",
-    "max_trades_abiertos": 5,
+    "max_trades_abiertos": 8,
     "exchanges_habilitados": ["binance"]
   },
   "sistema_riesgo": {

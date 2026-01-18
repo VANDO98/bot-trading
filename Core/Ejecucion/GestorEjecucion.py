@@ -235,30 +235,40 @@ class GestorEjecucion:
         try:
             ordenes = self.exchange.fetch_open_orders(simbolo)
             for o in ordenes:
-                # Buscamos la orden que es STOP y que reduce posición
-                if o['type'] == 'STOP_MARKET' and o['reduceOnly']:
+                # --- CORRECCIÓN CRÍTICA ---
+                # Convertimos a mayúsculas (.upper()) para asegurar coincidencia
+                tipo = o.get('type', '').upper()
+                reduce = o.get('reduceOnly', False)
+                
+                # Aceptamos 'STOP_MARKET' o 'STOP' (algunos exchanges varían)
+                if (tipo == 'STOP_MARKET' or tipo == 'STOP') and reduce:
                     return o
             return None
         except Exception as e:
             print(Fore.RED + f"⚠️ No encuentro el Stop Loss de {simbolo}: {e}")
             return None
 
-    def modificar_stop_loss(self, simbolo, orden_id, nuevo_precio_stop):
+    def modificar_stop_loss(self, simbolo, orden_id, nuevo_precio_stop, lado_posicion):
         """
         Operación Atómica: Edita el precio del Stop Loss existente.
+        CORREGIDO: Ahora recibe 'lado_posicion' para evitar error 'NoneType'.
         """
         try:
             # Binance Futures permite editar precio
             nuevo_precio = self.exchange.price_to_precision(simbolo, nuevo_precio_stop)
             
-            print(Fore.MAGENTA + f"🔄 Actualizando SL en {simbolo} a ${nuevo_precio}...")
+            # Calculamos el lado de la ORDEN (inverso a la posición)
+            # Si estoy LONG ('buy'), mi Stop Loss es una VENTA ('sell')
+            lado_orden = 'sell' if lado_posicion == 'buy' else 'buy'
+
+            print(Fore.MAGENTA + f"🔄 Actualizando SL en {simbolo} a ${nuevo_precio} (Lado: {lado_orden})...")
             
             self.exchange.edit_order(
                 id=orden_id,
                 symbol=simbolo,
                 type='STOP_MARKET',
-                side=None, # No se cambia el lado
-                amount=None, # No se cambia la cantidad
+                side=lado_orden, # <--- AQUÍ ESTABA EL ERROR (antes era None)
+                amount=None, 
                 price=None,
                 params={'stopPrice': nuevo_precio}
             )
