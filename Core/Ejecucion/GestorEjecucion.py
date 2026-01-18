@@ -193,6 +193,7 @@ class GestorEjecucion:
     def obtener_datos_posicion(self, simbolo):
         """
         Devuelve datos críticos para calcular el Trailing Stop.
+        CORREGIDO: Detección robusta de LONG/SHORT.
         """
         try:
             # Normalización de símbolo para búsqueda robusta
@@ -202,12 +203,26 @@ class GestorEjecucion:
             for pos in posiciones:
                 s_api = pos['symbol'].replace('/', '').upper()
                 if s_api == target or s_api.startswith(target + ":"):
+                    
                     amt = float(pos['contracts'])
+                    
                     if abs(amt) > 0:
+                        # --- CORRECCIÓN DE LADO (FIX) ---
+                        # 1. Intentamos leer 'side' que devuelve CCXT ('long' o 'short')
+                        lado_api = pos.get('side') 
+                        
+                        # 2. Si CCXT no lo da, miramos el signo en la data cruda de Binance
+                        if not lado_api:
+                             raw_amt = float(pos['info']['positionAmt'])
+                             lado_final = 'buy' if raw_amt > 0 else 'sell'
+                        else:
+                             # Normalizamos a 'buy'/'sell' que usa nuestro bot
+                             lado_final = 'buy' if lado_api == 'long' else 'sell'
+                        
                         return {
                             'entryPrice': float(pos['entryPrice']),
                             'amount': abs(amt),
-                            'side': 'buy' if amt > 0 else 'sell',
+                            'side': lado_final, # <--- USAMOS EL LADO CORREGIDO
                             'markPrice': float(pos.get('markPrice', 0))
                         }
             return None
@@ -251,3 +266,29 @@ class GestorEjecucion:
         except Exception as e:
             print(Fore.RED + f"❌ Falló edición de SL: {e}")
             return False
+
+    # --- NUEVO MÉTODO PARA VALIDACIÓN PERIÓDICA ---
+    def obtener_todos_simbolos_con_posicion(self):
+        """
+        Devuelve una LISTA de los símbolos que tienen posiciones abiertas (contratos > 0).
+        Optimizado para hacer 1 sola petición a la API en lugar de N peticiones.
+        """
+        try:
+            posiciones = self.exchange.fetch_positions()
+            simbolos_activos = []
+            
+            for pos in posiciones:
+                # Filtrar solo las que tienen tamaño > 0
+                if float(pos['contracts']) > 0:
+                    raw_symbol = pos['symbol'] # Ej: 'BTC/USDT:USDT'
+                    
+                    # Limpieza para coincidir con tu config (BTC/USDT)
+                    # Si tiene dos puntos (futuros lineales), cortamos
+                    simbolo_limpio = raw_symbol.split(':')[0] 
+                    simbolos_activos.append(simbolo_limpio)
+            
+            return simbolos_activos
+            
+        except Exception as e:
+            print(Fore.RED + f"⚠️ Error en validación masiva de posiciones: {e}")
+            return []

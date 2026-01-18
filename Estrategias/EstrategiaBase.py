@@ -13,7 +13,8 @@ class EstrategiaBase(ABC):
         self.velas = pd.DataFrame() 
         self.posicion_abierta = False # Memoria de estado para el BotController
 
-    def recibir_vela(self, simbolo, kline_data):
+    # Tienes que agregar 'ejecutar_analisis=True' aquí 👇
+    def recibir_vela(self, simbolo, kline_data, ejecutar_analisis=True):
         """Procesa la vela entrante y actualiza el DataFrame interno"""
         nueva_fila = {
             'timestamp': pd.to_datetime(kline_data['t'], unit='ms'),
@@ -38,7 +39,6 @@ class EstrategiaBase(ABC):
                 self.velas = pd.concat([self.velas, df_nuevo], ignore_index=True)
             else:
                 # CASO B: Es la misma vela actualizándose (Intrabarra)
-                # Actualización Quirúrgica
                 for col in df_nuevo.columns:
                     if col in self.velas.columns:
                         col_idx = self.velas.columns.get_loc(col)
@@ -48,11 +48,14 @@ class EstrategiaBase(ABC):
         if len(self.velas) > 1000:
             self.velas = self.velas.iloc[-1000:].reset_index(drop=True)
 
-        # Recalcular indicadores (Aquí se rellena la columna RSI de nuevo)
+        # --- CAMBIO IMPORTANTE: MODO HIBERNACIÓN ---
+        # Ahora sí funcionará porque la variable viene de los argumentos
+        if not ejecutar_analisis:
+            return "HIBERNANDO" 
+
+        # Recalcular indicadores (Solo si estamos activos)
         self.calcular_indicadores()
         
-        # Solo generamos señal si la vela cerró (para evitar falsas entradas)
-        # Opcional: Puedes quitar el 'if' si quieres operar intra-vela
         if nueva_fila['cerrada']:
             return self.generar_senal()
             

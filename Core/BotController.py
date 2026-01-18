@@ -5,7 +5,6 @@ from colorama import Fore, Style
 from Core.Utils.Config import Config
 from Core.API.GestorHibrido import GestorHibrido
 from Core.Ejecucion.GestorEjecucion import GestorEjecucion 
-
 from Core.Utils.TradeLogger import TradeLogger 
 
 # Estrategias
@@ -14,12 +13,14 @@ from Estrategias.Concretas.EstrategiaRSI_ADX import EstrategiaRSI_ADX
 
 class BotController:
     """
-    ORQUESTADOR FINAL: Datos -> Estrategia -> EJECUCIÓN
-    Fase 6: Incluye Trailing Stop Dinámico (ATR) y Corrección de Tamaño de Posición.
+    ORQUESTADOR FINAL V2.7
+    - ROE Corregido (Apalancamiento)
+    - Semáforo de Límite de Posiciones
+    - Validación Periódica con Binance (Anti-Desync)
     """
     
     def __init__(self):
-        print(Fore.YELLOW + "🤖 Inicializando BotController v2.5 (CORREGIDO)...")
+        print(Fore.YELLOW + "🤖 Inicializando BotController v2.7 (FULL SAFE)...")
         
         self.catalogo_estrategias = { 
             "EstrategiaRSI": EstrategiaRSI,
@@ -31,14 +32,24 @@ class BotController:
         
         self.estrategias_activas = {} 
         self.config_pares = {} 
+        self.config_global = {} 
         
+        # --- NUEVO: Variables para validación periódica ---
+        self.ultima_validacion = time.time()
+        self.intervalo_validacion = 300  # 5 minutos (300 segundos)
+
         self.cargar_estrategias_desde_config()
 
     def cargar_estrategias_desde_config(self):
-        self.config_pares = Config.obtener_pares_activos()
+        full_config = Config.cargar_configuracion()
+        self.config_global = full_config.get('configuracion_global', {})
+        self.config_pares = full_config.get('pares', {})
+        
         print(f"⚙️ Configurando {len(self.config_pares)} pares activos...")
         
         for par, cfg in self.config_pares.items():
+            if not cfg.get('activo', False): continue
+
             nombre_clase = cfg.get('estrategia')
             params = cfg.get('parametros_estrategia', {})
             
@@ -56,27 +67,34 @@ class BotController:
 
         print(Fore.CYAN + "\n🔥 Iniciando Sincronización y Pre-Carga...")
 
+        # 1. Sincronización Inicial Estricta
+        try:
+            activos_reales = self.gestor_ejecucion.obtener_todos_simbolos_con_posicion()
+        except:
+            activos_reales = []
+
         for par, estrategia in self.estrategias_activas.items():
-            # 1. Configurar Apalancamiento
+            # A. Configurar Apalancamiento
             lev = self.config_pares[par].get('apalancamiento', 1)
             self.gestor_ejecucion.configurar_apalancamiento(par, lev)
 
-            # 2. Sincronización de Estado
-            esta_dentro = self.gestor_ejecucion.obtener_posicion_abierta(par)
+            # B. Sincronización de Estado (Usando la lista masiva)
+            esta_dentro = par in activos_reales
             estrategia.posicion_abierta = esta_dentro
             
             estado_str = f"{Fore.RED}OCUPADO{Fore.CYAN}" if esta_dentro else f"{Fore.GREEN}LIBRE{Fore.CYAN}"
-            print(f"   👁️ Estado inicial de {par}: {estado_str}")
+            print(f"   👁️ {par}: {estado_str}")
 
-            # 3. Descargar Historial
+            # C. Descargar Historial
             tf = self.config_pares[par]['timeframe']
-            print(f"   📥 Descargando historial para {par} ({tf})...", end="\r")
+            print(f"   📥 Historial {par} ({tf})...", end="\r")
             
             historial = self.gestor_datos.obtener_velas_historicas(par, tf, limite=1000)
             for kline in historial:
-                estrategia.recibir_vela(par, kline)
+                # En carga inicial calculamos todo para tener los indicadores listos
+                estrategia.recibir_vela(par, kline, ejecutar_analisis=True)
             
-            print(f"   ✅ {par}: {len(historial)} velas cargadas.")
+            print(f"   ✅ {par}: {len(historial)} velas.")
 
         print(Fore.GREEN + "✨ Todo sincronizado.\n")
 
@@ -86,53 +104,103 @@ class BotController:
         )
         print(Fore.GREEN + "🚀 Bot Operativo y Vigilando.")
 
+    def validar_sincronizacion_periodica(self):
+        """
+        Mecanismo de seguridad: Cada 5 min consulta a Binance la verdad absoluta.
+        """
+        if time.time() - self.ultima_validacion > self.intervalo_validacion:
+            print(Fore.YELLOW + "🕵️ Ejecutando validación periódica de posiciones...")
+            
+            try:
+                # Obtenemos la verdad de Binance
+                simbolos_en_exchange = self.gestor_ejecucion.obtener_todos_simbolos_con_posicion()
+                
+                cambios = 0
+                for par, estrategia in self.estrategias_activas.items():
+                    estado_memoria = estrategia.posicion_abierta
+                    estado_real = par in simbolos_en_exchange
+                    
+                    if estado_memoria != estado_real:
+                        print(f"{Fore.MAGENTA}⚠️ CORRECCIÓN {par}: Memoria({estado_memoria}) -> Real({estado_real})")
+                        estrategia.posicion_abierta = estado_real
+                        cambios += 1
+                
+                if cambios == 0:
+                    print(Fore.GREEN + "✅ Sincronización correcta. Todo en orden.")
+                
+            except Exception as e:
+                print(Fore.RED + f"❌ Error en validación periódica: {e}")
+            
+            self.ultima_validacion = time.time()
+
     def procesar_vela(self, simbolo, kline_data):
         """
-        Lógica Principal: Señales + Trailing Stop
+        Ciclo Principal: Validación -> Semáforo -> Estrategia -> Ejecución
         """
+        # 1. Ejecutar validación de seguridad si toca
+        self.validar_sincronizacion_periodica()
+
         estrategia = self.estrategias_activas.get(simbolo)
         if not estrategia: return
 
-        # --- GESTIÓN DE POSICIÓN (TRAILING STOP & SYNC) ---
+        # 2. SEMÁFORO DE POSICIONES
+        total_abiertas = sum(1 for e in self.estrategias_activas.values() if e.posicion_abierta)
+        limite_trades = self.config_global.get('max_trades_abiertos', 5)
+        
+        # Si NO estoy dentro Y ya no hay cupo -> Hibernar
+        en_hibernacion = (not estrategia.posicion_abierta) and (total_abiertas >= limite_trades)
+
+        # 3. GESTIÓN DE SALIDA (Trailing Stop)
+        # Prioridad absoluta: Si estoy dentro, gestiono la salida independientemente del límite
         if estrategia.posicion_abierta:
-            # Solo actuamos al cierre de vela para estabilidad
-            if kline_data['x']:
-                
-                # 1. Verificar si seguimos dentro
+            if kline_data['x']: # Cierre de vela
+                # Chequeo rápido de seguridad
                 sigue_abierta = self.gestor_ejecucion.obtener_posicion_abierta(simbolo)
                 if not sigue_abierta:
-                    print(f"{Fore.YELLOW}🔓 Posición cerrada en {simbolo}. Bot libre.")
+                    # Si Binance dice que cerró (SL o TP hit), liberamos memoria
+                    print(f"{Fore.YELLOW}🔓 Posición cerrada externamente en {simbolo}.")
                     estrategia.posicion_abierta = False
                     return
 
-                # 2. Obtener datos para el Trailing
                 datos_pos = self.gestor_ejecucion.obtener_datos_posicion(simbolo)
                 if datos_pos:
                     self.aplicar_trailing_stop(simbolo, estrategia, datos_pos)
         
-        # --------------------------------------------------
+        # 4. PROCESAR ESTRATEGIA
+        # Si estamos hibernando, 'ejecutar_analisis=False' ahorra CPU
+        senal = estrategia.recibir_vela(simbolo, kline_data, ejecutar_analisis=not en_hibernacion)
 
-        # Lógica de Entrada (Solo si estamos LIBRES)
+        if en_hibernacion:
+            return # No hacemos nada más si no hay cupo
+
+        # 5. GESTIÓN DE ENTRADA
         if not estrategia.posicion_abierta:
-            senal = estrategia.recibir_vela(simbolo, kline_data)
             if senal in ["COMPRA", "VENTA"]:
-                self.gestionar_ejecucion(simbolo, senal, estrategia)
+                # Doble check del semáforo antes de disparar dinero real
+                if total_abiertas < limite_trades:
+                    self.gestionar_ejecucion(simbolo, senal, estrategia)
+                else:
+                    print(f"{Fore.LIGHTBLACK_EX}⛔ Señal ignorada en {simbolo}: Límite alcanzado ({total_abiertas}/{limite_trades})")
+
 
     def aplicar_trailing_stop(self, simbolo, estrategia, datos_pos):
         """
-        Lógica de Trailing Stop Universal (Basada en ATR).
+        Trailing Stop con ROE REAL (Corregido).
         """
         entry_price = datos_pos['entryPrice']
         mark_price = datos_pos['markPrice']
         lado = datos_pos['side']
-        
-        # Calcular ROE (Retorno aproximado sobre precio)
-        if lado == 'buy':
-            delta_pct = (mark_price - entry_price) / entry_price
-        else:
-            delta_pct = (entry_price - mark_price) / entry_price
+        lev = self.config_pares[simbolo].get('apalancamiento', 1)
 
-        # Obtener SL actual
+        # 1. Calcular Delta Porcentual del Precio
+        if lado == 'buy':
+            delta_precio = (mark_price - entry_price) / entry_price
+        else:
+            delta_precio = (entry_price - mark_price) / entry_price
+
+        # 2. CALCULAR ROE REAL (Delta * Leverage)
+        roe_real = delta_precio * lev 
+
         orden_sl = self.gestor_ejecucion.obtener_orden_stop_loss(simbolo)
         if not orden_sl: return
         sl_actual = float(orden_sl['stopPrice'])
@@ -140,46 +208,42 @@ class BotController:
         nuevo_sl = None
         motivo = ""
 
-        # --- FASE 3: MAXIMIZACIÓN (ROE > 10%) -> Trailing con ATR ---
-        if delta_pct >= 0.10: 
+        # --- FASE A: MAXIMIZACIÓN (ROE > 10%) -> Trailing con ATR ---
+        if roe_real >= 0.10: 
             atr = estrategia.calcular_atr(periodo=14) 
-            
             if atr > 0:
-                distancia = 2 * atr # Distancia de 2 ATRs
-                
+                distancia = 2 * atr 
                 if lado == 'buy':
                     target = mark_price - distancia
-                    if target > sl_actual: # Solo subir
+                    if target > sl_actual:
                         nuevo_sl = target
-                        motivo = f"Trailing ATR (ROE {delta_pct*100:.1f}%)"
-                else: # Short
+                        motivo = f"Trailing ATR (ROE {roe_real*100:.1f}%)"
+                else:
                     target = mark_price + distancia
-                    if target < sl_actual: # Solo bajar
+                    if target < sl_actual:
                         nuevo_sl = target
-                        motivo = f"Trailing ATR (ROE {delta_pct*100:.1f}%)"
+                        motivo = f"Trailing ATR (ROE {roe_real*100:.1f}%)"
         
-        # --- FASE 2: ASEGURAMIENTO (ROE > 7%) -> Breakeven ---
-        elif delta_pct >= 0.07:
-            margen = entry_price * 0.001 # +0.1% para cubrir comisiones
+        # --- FASE B: BREAKEVEN (ROE > 5%) ---
+        elif roe_real >= 0.05:
+            # Cubrir fees (aprox 0.15% del precio base suele ser seguro)
+            margen_fee = entry_price * 0.0015 
             
             if lado == 'buy':
-                target = entry_price + margen
+                target = entry_price + margen_fee
                 if target > sl_actual: 
                     nuevo_sl = target
-                    motivo = "Breakeven"
+                    motivo = f"Breakeven (ROE {roe_real*100:.1f}%)"
             else:
-                target = entry_price - margen
+                target = entry_price - margen_fee
                 if target < sl_actual: 
                     nuevo_sl = target
-                    motivo = "Breakeven"
+                    motivo = f"Breakeven (ROE {roe_real*100:.1f}%)"
 
-        # Ejecutar modificación
         if nuevo_sl:
             print(f"{Fore.CYAN}🚀 {motivo}: Moviendo SL de {sl_actual} a {nuevo_sl}")
             self.gestor_ejecucion.modificar_stop_loss(simbolo, orden_sl['id'], nuevo_sl)
-
-            # [LOG CSV] Registrar el Movimiento
-            TradeLogger.registrar(simbolo, "TRAILING_UPDATE", nuevo_sl, f"{motivo} (Antes: {sl_actual})")
+            TradeLogger.registrar(simbolo, "TRAILING_UPDATE", nuevo_sl, f"{motivo}")
 
 
     def gestionar_ejecucion(self, simbolo, senal, estrategia):
@@ -188,14 +252,13 @@ class BotController:
         lado = "buy" if senal == "COMPRA" else "sell"
         config_cantidad = self.config_pares[simbolo].get('cantidad_operacion', 0)
         
-        # --- NUEVO: Obtener Apalancamiento Configurado ---
+        # Obtener Apalancamiento Configurado
         apalancamiento = self.config_pares[simbolo].get('apalancamiento', 1) 
         
         precio_actual = self.gestor_datos.obtener_precio(simbolo)
         
         # Calcular Cantidad
         if isinstance(config_cantidad, str) and '%' in config_cantidad:
-            # --- MODIFICADO: Pasamos el apalancamiento ---
             cantidad_final = self.gestor_ejecucion.calcular_cantidad_por_porcentaje(
                 simbolo, config_cantidad, precio_actual, apalancamiento
             )
@@ -204,7 +267,7 @@ class BotController:
 
         if cantidad_final <= 0: return
 
-        print(f"{Fore.MAGENTA}⚡ ALERTA: {lado.upper()} {simbolo} (Cant: {cantidad_final})...{Style.RESET_ALL}")
+        print(f"{Fore.MAGENTA}⚡ ALERTA: {lado.upper()} {simbolo} (Cant: {cantidad_final})...")
         
         # Ejecutar Entrada
         orden = self.gestor_ejecucion.colocar_orden_mercado(simbolo, lado, cantidad_final)
@@ -213,17 +276,20 @@ class BotController:
             estrategia.posicion_abierta = True
             precio_fill = float(orden.get('average', 0.0))
             if precio_fill == 0.0: precio_fill = precio_actual
-            print(f"{Fore.GREEN}✅ ENTRADA CONFIRMADA: {simbolo} | Precio: {precio_fill}{Style.RESET_ALL}")
+            
+            print(f"{Fore.GREEN}✅ ENTRADA CONFIRMADA: {simbolo} | Precio: {precio_fill}")
             
             # [LOG CSV] Registrar Entrada
             TradeLogger.registrar(simbolo, f"ENTRADA_{lado.upper()}", precio_fill, f"Cant: {cantidad_final} | Lev: {apalancamiento}x")
 
             # --- PROTECCIONES INICIALES ---
-            config_global = Config.cargar_configuracion()
-            riesgo = config_global.get('sistema_riesgo', {})
+            # Recargamos config por seguridad para tener el riesgo fresco
+            full_conf = Config.cargar_configuracion()
+            riesgo = full_conf.get('sistema_riesgo', {})
             sl_pct = riesgo.get('stop_loss_pct', 0.02)
-            
-            print(f"🛡️ Colocando SL Inicial ({sl_pct*100}%) y TP Extendido (50%)")
+            tp_pct = riesgo.get('take_profit_pct', 0.50)
+
+            print(f"🛡️ Colocando SL Inicial ({sl_pct*100}%) y TP...")
 
             self.gestor_ejecucion.colocar_ordenes_salida(
                 simbolo=simbolo,
@@ -231,16 +297,16 @@ class BotController:
                 cantidad=cantidad_final,
                 precio_entrada=precio_fill,
                 sl_pct=sl_pct,
-                tp_pct=0.50 
+                tp_pct=tp_pct 
             )
 
-            # [LOG CSV] Registrar SL Inicial
+            # [LOG CSV] Registrar SL Inicial (AQUÍ ESTÁ LA LÍNEA QUE FALTABA)
             precio_sl_inicial = precio_fill * (1 - sl_pct) if lado == 'buy' else precio_fill * (1 + sl_pct)
             TradeLogger.registrar(simbolo, "SL_INICIAL", precio_sl_inicial, f"Distancia: {sl_pct*100}%")
 
         else:
             print(Fore.RED + "❌ ERROR AL ENTRAR.")
-
+            
     def detener(self):
         print(Fore.YELLOW + "\n🛑 Deteniendo sistema...")
         self.gestor_datos.detener_todo()

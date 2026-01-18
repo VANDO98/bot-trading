@@ -14,7 +14,7 @@ CARPETA_DATA = os.path.join(BASE_DIR, "Data_Entrenamiento") # Datos crudos origi
 ARCHIVO_MODELO = os.path.join(BASE_DIR, "modelo_rf_trading.joblib")
 
 # Parámetros de Simulación (Deben ser iguales a los del entrenamiento)
-UMBRAL_CONFIANZA = 0.55    # Solo entramos si el modelo está 65% seguro
+UMBRAL_CONFIANZA = 0.55    # Solo entramos si el modelo está 55% seguro
 MULTIPLO_TP = 2.0          # Ganancia: 2x ATR
 MULTIPLO_SL = 1.0          # Riesgo: 1x ATR
 HORIZONTE_VELAS = 24       # Tiempo máximo para ganar

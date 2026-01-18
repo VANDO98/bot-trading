@@ -1,4 +1,4 @@
-# --- Python ---
+# --- Python & Compilados ---
 __pycache__/
 *.pyc
 *.pyo
@@ -9,26 +9,30 @@ __pycache__/
 venv/
 env/
 ENV/
+.venv_v2/
 
-# --- Configuración y Claves (MUY IMPORTANTE) ---
+# --- Configuración y Claves (CRÍTICO) ---
 .env
 .env.local
 config.ini
-.pem
+*.pem
+*.key
+*.pub
 
-# --- VS Code ---
+# --- VS Code e IDEs ---
 .vscode/
+.idea/
 
-# --- Logs y Bases de datos locales ---
+# --- Logs y Datos Locales ---
 *.log
 *.sqlite3
 *.csv
+historial_trading.csv
+Core/Utils/Logs/
 
-# Extras
-
-.venv_v2/
-*.pem
-*.csv
-__pycache__/
+# --- Machine Learning (Datasets) ---
 Machine_Learning/Data_Entrenamiento/
 Machine_Learning/Data_Procesada/
+
+# --- Carpetas Antiguas ---
+_OLD_v1/
