@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 from colorama import Fore, Style
+import json
 
 # Módulos del sistema
 from Core.Utils.Config import Config
@@ -234,6 +235,10 @@ class BotController:
                 TradeLogger.registrar(simbolo, "TRAILING_UPDATE", nuevo_sl, f"{motivo}")
 
     def gestionar_ejecucion(self, simbolo, senal, estrategia):
+        """
+        Maneja la ejecución de órdenes con filtro de Machine Learning.
+        OPTIMIZADO: Usa datos en memoria (Zero-Latency) en lugar de REST API.
+        """
         if estrategia.posicion_abierta: return 
 
         lado = "buy" if senal == "COMPRA" else "sell"
@@ -241,72 +246,43 @@ class BotController:
         apalancamiento = self.config_pares[simbolo].get('apalancamiento', 1) 
         
         # ============================================================
-        # 🧠 FILTRO 2: MACHINE LEARNING (CON TRADUCTOR DE DATOS)
+        # 🧠 FILTRO 2: MACHINE LEARNING (ZERO-LATENCY)
         # ============================================================
         print(f"🤖 Estrategia Técnica sugiere: {senal}. Consultando al ML...")
         
-        raw_velas = self.gestor_datos.obtener_velas_historicas(simbolo, self.config_pares[simbolo]['timeframe'], limite=200)
+        # [CORRECCIÓN] Usamos directamente la memoria de la estrategia
+        # Esto evita la latencia de pedir datos a la API nuevamente.
         df_velas_recientes = None
-        
+
         try:
-            if isinstance(raw_velas, list):
-                if not raw_velas: 
-                    print(Fore.YELLOW + "⚠️ Data insuficiente para ML (Lista vacía).")
-                    return # Bloqueo
+            if estrategia.velas is None or estrategia.velas.empty:
+                print(Fore.RED + "⛔ Error Data: La estrategia no tiene velas en memoria para analizar.")
+                return # Bloqueo
 
-                # CASO A: Lista de Listas (Standard CCXT)
-                if isinstance(raw_velas[0], list):
-                    df_velas_recientes = pd.DataFrame(
-                        raw_velas, 
-                        columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
-                    )
-                
-                # CASO B: Lista de Dicts (Binance Raw)
-                elif isinstance(raw_velas[0], dict):
-                    df_velas_recientes = pd.DataFrame(raw_velas)
-                    # Normalizamos columnas
-                    df_velas_recientes.columns = [x.lower() for x in df_velas_recientes.columns]
-                    # TRADUCTOR AUTOMÁTICO
-                    mapeo = {
-                        't': 'timestamp', 'o': 'open', 'h': 'high', 
-                        'l': 'low', 'c': 'close', 'v': 'volume',
-                    }
-                    df_velas_recientes.rename(columns=mapeo, inplace=True)
-            
-            elif isinstance(raw_velas, pd.DataFrame):
-                df_velas_recientes = raw_velas.copy()
-                df_velas_recientes.columns = [x.lower() for x in df_velas_recientes.columns]
-                # Traductor preventivo
-                mapeo = {'t': 'timestamp', 'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'}
-                df_velas_recientes.rename(columns=mapeo, inplace=True)
+            # Copiamos para no afectar el flujo principal
+            df_velas_recientes = estrategia.velas.copy()
 
-            # CONVERSIÓN A NUMÉRICO (Vital para evitar errores de tipo 'str')
-            if df_velas_recientes is not None:
-                cols_num = ['open', 'high', 'low', 'close', 'volume']
-                for c in cols_num:
-                    if c in df_velas_recientes.columns:
-                        df_velas_recientes[c] = pd.to_numeric(df_velas_recientes[c], errors='coerce')
+            # Validación de cantidad mínima de datos para los indicadores del ML
+            # El modelo necesita contexto (ej: 200 velas) para calcular medias, RSI, etc.
+            if len(df_velas_recientes) < 200:
+                print(Fore.YELLOW + f"⚠️ Data insuficiente en memoria ({len(df_velas_recientes)} velas). Esperando recolección...")
+                return # Bloqueo
 
             # VALIDACIÓN Y PREDICCIÓN
-            if df_velas_recientes is not None and not df_velas_recientes.empty:
-                cols_req = ['close', 'high', 'low', 'volume']
-                if not all(col in df_velas_recientes.columns for col in cols_req):
-                    print(Fore.RED + f"⛔ Error Data: Faltan columnas tras traducción. Vistas: {list(df_velas_recientes.columns)}")
-                    return # Bloqueo
-
-                ml_aprueba = self.gestor_prediccion.predecir_exito(simbolo, df_velas_recientes)
-                
-                if not ml_aprueba:
-                    print(Fore.LIGHTRED_EX + f"⛔ ML FILTRO: Operación cancelada por baja probabilidad en {simbolo}.")
-                    return # Bloqueo Estratégico
-            else:
-                print(Fore.RED + "⛔ Error: No se pudo generar DataFrame válido para ML.")
-                return # Bloqueo Técnico
+            # Las columnas en EstrategiaBase ya son: timestamp, open, high, low, close, volume
+            # No hace falta renombrar ni traducir nada.
+            ml_aprueba = self.gestor_prediccion.predecir_exito(simbolo, df_velas_recientes)
+            
+            if not ml_aprueba:
+                print(Fore.LIGHTRED_EX + f"⛔ ML FILTRO: Operación cancelada por baja probabilidad en {simbolo}.")
+                return # Bloqueo Estratégico
 
         except Exception as e:
             print(Fore.RED + f"❌ Excepción crítica en preparación de datos ML: {e}")
             return # Bloqueo Total
 
+        # ============================================================
+        # 🚀 EJECUCIÓN (Si ML aprueba)
         # ============================================================
 
         precio_actual = self.gestor_datos.obtener_precio(simbolo)
@@ -353,7 +329,39 @@ class BotController:
 
         else:
             print(Fore.RED + "❌ ERROR AL ENTRAR.")
-            
+
     def detener(self):
         print(Fore.YELLOW + "\n🛑 Deteniendo sistema...")
         self.gestor_datos.detener_todo()
+
+    # --- AGREGAR ESTE MÉTODO AL FINAL DE LA CLASE ---
+    def actualizar_umbral_ml(self, nuevo_valor):
+        """
+        Actualiza el ml_threshold en memoria y en el archivo JSON
+        para que persista y sea leído por GestorPrediccion.
+        """
+        try:
+            # 1. Definir ruta del archivo
+            ruta_config = "config_trading.json"
+            
+            # 2. Cargar config actual
+            with open(ruta_config, 'r') as f:
+                data = json.load(f)
+            
+            # 3. Modificar valor
+            if 'sistema_riesgo' not in data:
+                data['sistema_riesgo'] = {}
+            
+            valor_anterior = data['sistema_riesgo'].get('ml_threshold', 0.0)
+            data['sistema_riesgo']['ml_threshold'] = float(nuevo_valor)
+            
+            # 4. Guardar cambios en disco
+            with open(ruta_config, 'w') as f:
+                json.dump(data, f, indent=2)
+                
+            print(f"✅ Configuración actualizada: ML Threshold {valor_anterior} -> {nuevo_valor}")
+            return True, valor_anterior
+            
+        except Exception as e:
+            print(f"❌ Error guardando config: {e}")
+            return False, str(e)
