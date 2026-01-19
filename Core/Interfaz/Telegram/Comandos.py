@@ -82,7 +82,7 @@ class GestorComandos:
             
             elif modo == "off":
                 self.bot.mostrar_dashboard = False
-                enviar_texto_func(chat_id, "c **Dashboard APAGADO** (Modo Silencioso).")
+                enviar_texto_func(chat_id, "**Dashboard APAGADO** (Modo Silencioso).")
             
             else:
                 enviar_texto_func(chat_id, "⚠️ Uso: `/dash on` o `/dash off`")

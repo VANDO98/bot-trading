@@ -1,4 +1,5 @@
 import time
+import pandas as pd
 from colorama import Fore, Style
 
 # Módulos del sistema
@@ -6,7 +7,7 @@ from Core.Utils.Config import Config
 from Core.API.GestorHibrido import GestorHibrido
 from Core.Ejecucion.GestorEjecucion import GestorEjecucion 
 from Core.Utils.TradeLogger import TradeLogger 
-from Core.Utils.GestorPrediccion import GestorPrediccion # <--- 1. NUEVO IMPORT
+from Core.Utils.GestorPrediccion import GestorPrediccion
 
 # Estrategias
 from Estrategias.Concretas.EstrategiaRSI import EstrategiaRSI
@@ -14,14 +15,16 @@ from Estrategias.Concretas.EstrategiaRSI_ADX import EstrategiaRSI_ADX
 
 class BotController:
     """
-    ORQUESTADOR FINAL V2.8 (ML INTEGRADO)
+    ORQUESTADOR FINAL V2.9.3 (ESTABLE)
+    - Integración ML con Traductor de Datos.
+    - Limpieza de Órdenes Fantasma (Ghost Buster).
+    - Fail-Safe activado.
     """
     
     def __init__(self):
-        print(Fore.YELLOW + "🤖 Inicializando BotController v2.8 (ML ENABLED)...")
+        print(Fore.YELLOW + "🤖 Inicializando BotController v2.9.3 (FINAL)...")
         
-        # Control del Dashboard
-        self.mostrar_dashboard = False  
+        self.mostrar_dashboard = False 
 
         self.catalogo_estrategias = { 
             "EstrategiaRSI": EstrategiaRSI,
@@ -30,7 +33,7 @@ class BotController:
         
         self.gestor_datos = GestorHibrido()
         self.gestor_ejecucion = GestorEjecucion()
-        self.gestor_prediccion = GestorPrediccion() # <--- 2. INICIALIZAR ML
+        self.gestor_prediccion = GestorPrediccion()
         
         self.estrategias_activas = {} 
         self.config_pares = {} 
@@ -83,6 +86,10 @@ class BotController:
             estado_str = f"{Fore.RED}OCUPADO{Fore.CYAN}" if esta_dentro else f"{Fore.GREEN}LIBRE{Fore.CYAN}"
             print(f"   👁️ {par}: {estado_str}")
 
+            # Limpieza inicial preventiva
+            if not esta_dentro:
+                self.gestor_ejecucion.cancelar_ordenes_pendientes(par)
+
             tf = self.config_pares[par]['timeframe']
             print(f"   📥 Historial {par} ({tf})...", end="\r")
             
@@ -102,7 +109,7 @@ class BotController:
 
     def validar_sincronizacion_periodica(self):
         if time.time() - self.ultima_validacion > self.intervalo_validacion:
-            print(Fore.YELLOW + "🕵️ Ejecutando validación periódica de posiciones...")
+            print(Fore.YELLOW + "🕵️ Ejecutando validación periódica (Ghost Buster)...")
             try:
                 simbolos_en_exchange = self.gestor_ejecucion.obtener_todos_simbolos_con_posicion()
                 cambios = 0
@@ -114,13 +121,17 @@ class BotController:
                         print(f"{Fore.MAGENTA}⚠️ CORRECCIÓN {par}: Memoria({estado_memoria}) -> Real({estado_real})")
                         estrategia.posicion_abierta = estado_real
                         cambios += 1
-                        if not estado_real:
-                            print(f"{Fore.YELLOW}🧹 Detectado cierre externo en {par}. Borrando TP/SL restantes...")
-                            self.gestor_ejecucion.cancelar_ordenes_pendientes(par)
+                    
+                    # Limpieza incondicional si no hay posición
+                    if not estado_real:
+                        self.gestor_ejecucion.cancelar_ordenes_pendientes(par)
+                
                 if cambios == 0:
-                    print(Fore.GREEN + "✅ Sincronización correcta. Todo en orden.")
+                    print(Fore.GREEN + "✅ Sincronización OK. Área limpia.")
+                    
             except Exception as e:
                 print(Fore.RED + f"❌ Error en validación periódica: {e}")
+            
             self.ultima_validacion = time.time()
 
     def procesar_vela(self, simbolo, kline_data):
@@ -230,21 +241,72 @@ class BotController:
         apalancamiento = self.config_pares[simbolo].get('apalancamiento', 1) 
         
         # ============================================================
-        # 🧠 FILTRO 2: MACHINE LEARNING (AQUÍ ESTÁ LA MAGIA)
+        # 🧠 FILTRO 2: MACHINE LEARNING (CON TRADUCTOR DE DATOS)
         # ============================================================
         print(f"🤖 Estrategia Técnica sugiere: {senal}. Consultando al ML...")
         
-        # Obtenemos las velas recientes para que el ML analice el contexto
-        df_velas_recientes = self.gestor_datos.obtener_velas_historicas(simbolo, self.config_pares[simbolo]['timeframe'], limite=200)
+        raw_velas = self.gestor_datos.obtener_velas_historicas(simbolo, self.config_pares[simbolo]['timeframe'], limite=200)
+        df_velas_recientes = None
         
-        if df_velas_recientes is not None and not df_velas_recientes.empty:
-            ml_aprueba = self.gestor_prediccion.predecir_exito(df_velas_recientes)
+        try:
+            if isinstance(raw_velas, list):
+                if not raw_velas: 
+                    print(Fore.YELLOW + "⚠️ Data insuficiente para ML (Lista vacía).")
+                    return # Bloqueo
+
+                # CASO A: Lista de Listas (Standard CCXT)
+                if isinstance(raw_velas[0], list):
+                    df_velas_recientes = pd.DataFrame(
+                        raw_velas, 
+                        columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                    )
+                
+                # CASO B: Lista de Dicts (Binance Raw)
+                elif isinstance(raw_velas[0], dict):
+                    df_velas_recientes = pd.DataFrame(raw_velas)
+                    # Normalizamos columnas
+                    df_velas_recientes.columns = [x.lower() for x in df_velas_recientes.columns]
+                    # TRADUCTOR AUTOMÁTICO
+                    mapeo = {
+                        't': 'timestamp', 'o': 'open', 'h': 'high', 
+                        'l': 'low', 'c': 'close', 'v': 'volume',
+                    }
+                    df_velas_recientes.rename(columns=mapeo, inplace=True)
             
-            if not ml_aprueba:
-                print(Fore.LIGHTRED_EX + f"⛔ ML FILTRO: Operación cancelada por baja probabilidad en {simbolo}.")
-                return # <--- AQUÍ CORTAMOS SI EL ML DICE NO
-        else:
-            print(Fore.YELLOW + "⚠️ No hay suficientes datos para ML. Saltando filtro.")
+            elif isinstance(raw_velas, pd.DataFrame):
+                df_velas_recientes = raw_velas.copy()
+                df_velas_recientes.columns = [x.lower() for x in df_velas_recientes.columns]
+                # Traductor preventivo
+                mapeo = {'t': 'timestamp', 'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'}
+                df_velas_recientes.rename(columns=mapeo, inplace=True)
+
+            # CONVERSIÓN A NUMÉRICO (Vital para evitar errores de tipo 'str')
+            if df_velas_recientes is not None:
+                cols_num = ['open', 'high', 'low', 'close', 'volume']
+                for c in cols_num:
+                    if c in df_velas_recientes.columns:
+                        df_velas_recientes[c] = pd.to_numeric(df_velas_recientes[c], errors='coerce')
+
+            # VALIDACIÓN Y PREDICCIÓN
+            if df_velas_recientes is not None and not df_velas_recientes.empty:
+                cols_req = ['close', 'high', 'low', 'volume']
+                if not all(col in df_velas_recientes.columns for col in cols_req):
+                    print(Fore.RED + f"⛔ Error Data: Faltan columnas tras traducción. Vistas: {list(df_velas_recientes.columns)}")
+                    return # Bloqueo
+
+                ml_aprueba = self.gestor_prediccion.predecir_exito(simbolo, df_velas_recientes)
+                
+                if not ml_aprueba:
+                    print(Fore.LIGHTRED_EX + f"⛔ ML FILTRO: Operación cancelada por baja probabilidad en {simbolo}.")
+                    return # Bloqueo Estratégico
+            else:
+                print(Fore.RED + "⛔ Error: No se pudo generar DataFrame válido para ML.")
+                return # Bloqueo Técnico
+
+        except Exception as e:
+            print(Fore.RED + f"❌ Excepción crítica en preparación de datos ML: {e}")
+            return # Bloqueo Total
+
         # ============================================================
 
         precio_actual = self.gestor_datos.obtener_precio(simbolo)

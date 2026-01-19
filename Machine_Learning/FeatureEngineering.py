@@ -75,7 +75,7 @@ class FeatureEngineering:
         df['Cuerpo_Pct'] = np.where(rango_total == 0, 0, cuerpo / rango_total)
 
         # Limpieza final para inferencia (Relleno de NaNs incipientes)
-        df.fillna(method='ffill', inplace=True)
+        df.ffill(inplace=True)  # <--- CAMBIO AQUÍ (Más moderno y sin error)
         df.fillna(0, inplace=True)
 
         return df

@@ -3,78 +3,93 @@ import joblib
 import pandas as pd
 from colorama import Fore
 
-# Importamos tu ingeniería de características actualizada
+# Imports del sistema
+from Core.Utils.Config import Config
+from Core.Utils.ML_Logger import MLLogger
 from Machine_Learning.FeatureEngineering import FeatureEngineering
 
 class GestorPrediccion:
     def __init__(self):
         self.modelo = None
         self.feature_eng = FeatureEngineering() 
+        self.features_esperadas = [] # Lista para guardar el ADN del modelo
         self.cargar_modelo()
 
     def cargar_modelo(self):
-        """Carga el modelo Random Forest entrenado (.joblib)"""
         try:
-            # Ruta relativa: Subimos 3 niveles desde Core/Utils/ hasta la raíz
             root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             ruta_modelo = os.path.join(root_dir, "Machine_Learning", "modelo_rf_trading.joblib")
             
             if os.path.exists(ruta_modelo):
                 self.modelo = joblib.load(ruta_modelo)
-                print(Fore.GREEN + f"🧠 Modelo ML cargado correctamente: {ruta_modelo}")
+                
+                # 🔥 AUTO-DETECCIÓN DE COLUMNAS (La clave del éxito)
+                if hasattr(self.modelo, "feature_names_in_"):
+                    self.features_esperadas = list(self.modelo.feature_names_in_)
+                    print(Fore.GREEN + f"🧠 Modelo ML cargado. Espera {len(self.features_esperadas)} variables.")
+                else:
+                    print(Fore.YELLOW + "⚠️ El modelo no tiene metadatos de columnas. Se usará modo manual.")
             else:
                 print(Fore.RED + f"⚠️ No se encontró el modelo en: {ruta_modelo}")
-                print(Fore.YELLOW + "   -> El bot operará SIN filtro de ML (Peligroso si dependes de él).")
         except Exception as e:
             print(Fore.RED + f"❌ Error cargando modelo ML: {e}")
 
-    def predecir_exito(self, df_velas):
-        """
-        Recibe las últimas velas, calcula indicadores y pregunta al modelo.
-        Retorna: True (Aprobado) / False (Rechazado)
-        """
-        # Si no hay modelo cargado, por seguridad APROBAMOS (Fail-open) o RECHAZAMOS?
-        # Aquí asumimos que si no hay modelo, el usuario quiere operar solo con RSI.
-        if self.modelo is None:
-            return True 
+    def predecir_exito(self, simbolo, df_velas):
+        if self.modelo is None: return True 
+
+        # 1. Leer Umbral Configurado
+        try:
+            full_conf = Config.cargar_configuracion()
+            umbral_config = full_conf.get('sistema_riesgo', {}).get('ml_threshold', 0.65)
+        except:
+            umbral_config = 0.65
 
         try:
-            # 1. Generar Features (Indicadores)
-            # Usamos tu FeatureEngineering que ya valida y limpia
+            # 2. Generar Features (Calcula TODO: Features + Intermedios)
             df_features = self.feature_eng.aplicar_features(df_velas.copy())
             
-            # 2. Limpieza rápida (El modelo no acepta NaNs)
+            # Limpieza básica de N/A
             df_features = df_features.dropna()
-            
-            if df_features.empty:
-                print(Fore.YELLOW + "⚠️ ML: Data insuficiente tras limpieza.")
-                return False
+            if df_features.empty: return False
 
-            # 3. Tomamos la ÚLTIMA vela (la situación actual del mercado)
+            # 3. FILTRADO QUIRÚRGICO DE COLUMNAS
+            # Aquí es donde arreglamos el error. Seleccionamos SOLO lo que el modelo pide.
             ultima_fila = df_features.iloc[[-1]]
             
-            # 4. FILTRO DE COLUMNAS (CRÍTICO)
-            # Debemos eliminar columnas que NO son features (fechas, precios crudos, target, etc.)
-            # y quedarnos solo con las numéricas que usó el modelo.
-            cols_excluir = ['timestamp', 'time', 'open', 'high', 'low', 'close', 'volume', 'target', 'TARGET']
-            cols_modelo = [c for c in ultima_fila.columns if c.lower() not in cols_excluir]
-            
-            X_input = ultima_fila[cols_modelo]
+            if self.features_esperadas:
+                # Verificamos que todas las columnas existan
+                faltantes = [col for col in self.features_esperadas if col not in ultima_fila.columns]
+                if faltantes:
+                    print(Fore.RED + f"⛔ Error Data: Faltan columnas requeridas por el modelo: {faltantes}")
+                    return False
+                
+                # Seleccionamos SOLO las 9 columnas del entrenamiento (ignorando ATR, EMA_200, etc.)
+                X_input = ultima_fila[self.features_esperadas]
+            else:
+                # Fallback por si el modelo es muy viejo (no debería pasar con tu test actual)
+                cols_excluir = ['timestamp', 'time', 'open', 'high', 'low', 'close', 'volume', 'target', 'TARGET']
+                cols_modelo = [c for c in ultima_fila.columns if c.lower() not in cols_excluir]
+                X_input = ultima_fila[cols_modelo]
 
-            # 5. Predicción
-            prediccion = self.modelo.predict(X_input)[0]          # 0 o 1
-            probabilidad = self.modelo.predict_proba(X_input)[0][1] # Probabilidad de ser 1
+            # 4. Predicción
+            probabilidad = self.modelo.predict_proba(X_input)[0][1] 
 
-            # Lógica de decisión
-            es_aprobado = (prediccion == 1)
+            # 5. Decisión
+            es_aprobado = (probabilidad >= umbral_config)
             
+            # 6. Logging
             color = Fore.GREEN if es_aprobado else Fore.RED
-            print(f"{color}🧠 Análisis ML: Probabilidad éxito: {probabilidad:.2f} -> {'APROBADO' if es_aprobado else 'RECHAZADO'}")
+            icono = "🎯" if es_aprobado else "🛑"
+            
+            print(f"{color}{icono} ML {simbolo}: Prob {probabilidad:.1%} vs Req {umbral_config:.1%} -> {'APROBADO' if es_aprobado else 'DENEGADO'}")
+            
+            # Guardamos Log Completo
+            MLLogger.registrar_prediccion(simbolo, probabilidad, umbral_config, es_aprobado, ultima_fila)
 
             return es_aprobado
 
         except Exception as e:
-            print(Fore.RED + f"⚠️ Error técnico en predicción ML: {e}")
-            # En caso de error de código, dejamos pasar para no detener el bot, 
-            # o retornamos False si prefieres máxima seguridad.
-            return True
+            print(Fore.RED + f"⚠️ Error predicción ML: {e}")
+            # Fail-Safe: Si falla, NO operamos
+            print(Fore.RED + "⛔ BLOQUEO DE SEGURIDAD: Error técnico en ML.")
+            return False

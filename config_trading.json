@@ -12,7 +12,9 @@
     "activacion_break_even_roe": 0.07,
     "trailing_stop_roe": 0.10,
     "stop_loss_pct": 0.015,
-    "take_profit_pct": 0.35
+    "take_profit_pct": 0.35,
+    "ml_threshold": 0.55,
+    "nota_adicional": "ml_threshold es el umbral mínimo de probabilidad para aprobar una operación"
   },
   "pares": {
     "BTC/USDT": {
