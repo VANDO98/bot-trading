@@ -31,10 +31,17 @@ class Config:
     @staticmethod
     def cargar_configuracion():
         """
-        [NUEVO] Devuelve TODO el diccionario de configuración.
-        Vital para que BotController lea 'sistema_riesgo'.
+        [NUEVO] Devuelve TODO el diccionario y ACTUALIZA flags globales.
         """
-        return Config._cargar_json()
+        data = Config._cargar_json()
+        
+        # --- CORRECCIÓN CRÍTICA ---
+        # Actualizamos la variable estática INMEDIATAMENTE al leer el archivo.
+        # Así, cualquier módulo que consulte Config.USAR_TESTNET después verá el valor real.
+        if data:
+            Config.USAR_TESTNET = data.get("usar_testnet", True)
+            
+        return data
 
     @staticmethod
     def obtener_pares_activos():

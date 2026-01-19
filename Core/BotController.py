@@ -10,6 +10,9 @@ from Core.Ejecucion.GestorEjecucion import GestorEjecucion
 from Core.Utils.TradeLogger import TradeLogger 
 from Core.Utils.GestorPrediccion import GestorPrediccion
 
+# Modo Paper Trading (opcional)
+from Core.Ejecucion.GestorEjecucionPaper import GestorEjecucionPaper
+
 # Estrategias
 from Estrategias.Concretas.EstrategiaRSI import EstrategiaRSI
 from Estrategias.Concretas.EstrategiaRSI_ADX import EstrategiaRSI_ADX
@@ -32,13 +35,37 @@ class BotController:
             "EstrategiaRSI_ADX": EstrategiaRSI_ADX
         }
         
+        # =======================================================
+        # 1. CARGA DE CONFIGURACIÓN (PRIMERO QUE TODO)
+        # =======================================================
+        # [CRÍTICO] Esto actualiza Config.USAR_TESTNET antes de conectar nada
+        full_config = Config.cargar_configuracion()
+        self.config_global = full_config.get('configuracion_global', {})
+        self.config_pares = {} 
+
+        # =======================================================
+        # 2. CONEXIÓN DE DATOS (GESTOR HÍBRIDO)
+        # =======================================================
+        # Ahora GestorHibrido leerá el valor correcto (False/Mainnet)
         self.gestor_datos = GestorHibrido()
-        self.gestor_ejecucion = GestorEjecucion()
+        
+        # =======================================================
+        # 3. SELECCIÓN DE MOTOR DE EJECUCIÓN (REAL vs PAPER)
+        # =======================================================
+        modo = self.config_global.get('modo_ejecucion', 'testnet')
+        
+        if modo == 'paper':
+            print(Fore.MAGENTA + "📝 Modo PAPER TRADING detectado. Usando motor simulado.")
+            self.gestor_ejecucion = GestorEjecucionPaper(self.gestor_datos)
+        else:
+            print(Fore.CYAN + "💳 Modo EXCHANGE detectado. Usando motor de ejecución real.")
+            self.gestor_ejecucion = GestorEjecucion()
+        # --------------------------------------------------------
+
         self.gestor_prediccion = GestorPrediccion()
         
         self.estrategias_activas = {} 
-        self.config_pares = {} 
-        self.config_global = {} 
+        # self.config_pares se llenará en el método cargar_estrategias
         
         self.ultima_validacion = time.time()
         self.intervalo_validacion = 300 
@@ -138,11 +165,21 @@ class BotController:
     def procesar_vela(self, simbolo, kline_data):
         self.validar_sincronizacion_periodica()
 
+        # ============================================================
+        # 🧪 BLOQUE PAPER TRADING (SIMULACIÓN EN VIVO)
+        # ============================================================
+        # Como no hay órdenes reales en Binance, nosotros debemos 
+        # verificar manualmente si el precio tocó el SL o TP.
+        if isinstance(self.gestor_ejecucion, GestorEjecucionPaper):
+             self.gestor_ejecucion.chequear_cierres(simbolo)
+        # ============================================================
+
         estrategia = self.estrategias_activas.get(simbolo)
         if not estrategia: return
 
         total_abiertas = sum(1 for e in self.estrategias_activas.values() if e.posicion_abierta)
         limite_trades = self.config_global.get('max_trades_abiertos', 5)
+        # Hibernamos si estamos llenos y esta estrategia no tiene posición
         en_hibernacion = (not estrategia.posicion_abierta) and (total_abiertas >= limite_trades)
 
         if estrategia.posicion_abierta:
@@ -158,6 +195,7 @@ class BotController:
                 if datos_pos:
                     self.aplicar_trailing_stop(simbolo, estrategia, datos_pos)
         
+        # Enviamos la vela a la estrategia (técnica)
         senal = estrategia.recibir_vela(simbolo, kline_data, ejecutar_analisis=not en_hibernacion)
 
         if en_hibernacion: return 
