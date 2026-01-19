@@ -6,6 +6,7 @@ from Core.Utils.Config import Config
 from Core.API.GestorHibrido import GestorHibrido
 from Core.Ejecucion.GestorEjecucion import GestorEjecucion 
 from Core.Utils.TradeLogger import TradeLogger 
+from Core.Utils.GestorPrediccion import GestorPrediccion # <--- 1. NUEVO IMPORT
 
 # Estrategias
 from Estrategias.Concretas.EstrategiaRSI import EstrategiaRSI
@@ -13,18 +14,14 @@ from Estrategias.Concretas.EstrategiaRSI_ADX import EstrategiaRSI_ADX
 
 class BotController:
     """
-    ORQUESTADOR FINAL V2.7
-    - ROE Corregido (Apalancamiento)
-    - Semáforo de Límite de Posiciones
-    - Validación Periódica con Binance (Anti-Desync)
+    ORQUESTADOR FINAL V2.8 (ML INTEGRADO)
     """
     
     def __init__(self):
-        print(Fore.YELLOW + "🤖 Inicializando BotController v2.7 (FULL SAFE)...")
+        print(Fore.YELLOW + "🤖 Inicializando BotController v2.8 (ML ENABLED)...")
         
-        # --- NUEVO: Control del Dashboard ---
-        self.mostrar_dashboard = False  # Por defecto apagado (Modo Servidor)
-        # ------------------------------------
+        # Control del Dashboard
+        self.mostrar_dashboard = False  
 
         self.catalogo_estrategias = { 
             "EstrategiaRSI": EstrategiaRSI,
@@ -33,14 +30,14 @@ class BotController:
         
         self.gestor_datos = GestorHibrido()
         self.gestor_ejecucion = GestorEjecucion()
+        self.gestor_prediccion = GestorPrediccion() # <--- 2. INICIALIZAR ML
         
         self.estrategias_activas = {} 
         self.config_pares = {} 
         self.config_global = {} 
         
-        # --- NUEVO: Variables para validación periódica ---
         self.ultima_validacion = time.time()
-        self.intervalo_validacion = 300  # 5 minutos (300 segundos)
+        self.intervalo_validacion = 300 
 
         self.cargar_estrategias_desde_config()
 
@@ -71,31 +68,26 @@ class BotController:
 
         print(Fore.CYAN + "\n🔥 Iniciando Sincronización y Pre-Carga...")
 
-        # 1. Sincronización Inicial Estricta
         try:
             activos_reales = self.gestor_ejecucion.obtener_todos_simbolos_con_posicion()
         except:
             activos_reales = []
 
         for par, estrategia in self.estrategias_activas.items():
-            # A. Configurar Apalancamiento
             lev = self.config_pares[par].get('apalancamiento', 1)
             self.gestor_ejecucion.configurar_apalancamiento(par, lev)
 
-            # B. Sincronización de Estado (Usando la lista masiva)
             esta_dentro = par in activos_reales
             estrategia.posicion_abierta = esta_dentro
             
             estado_str = f"{Fore.RED}OCUPADO{Fore.CYAN}" if esta_dentro else f"{Fore.GREEN}LIBRE{Fore.CYAN}"
             print(f"   👁️ {par}: {estado_str}")
 
-            # C. Descargar Historial
             tf = self.config_pares[par]['timeframe']
             print(f"   📥 Historial {par} ({tf})...", end="\r")
             
             historial = self.gestor_datos.obtener_velas_historicas(par, tf, limite=1000)
             for kline in historial:
-                # En carga inicial calculamos todo para tener los indicadores listos
                 estrategia.recibir_vela(par, kline, ejecutar_analisis=True)
             
             print(f"   ✅ {par}: {len(historial)} velas.")
@@ -109,16 +101,10 @@ class BotController:
         print(Fore.GREEN + "🚀 Bot Operativo y Vigilando.")
 
     def validar_sincronizacion_periodica(self):
-        """
-        Mecanismo de seguridad: Cada 5 min consulta a Binance la verdad absoluta.
-        """
         if time.time() - self.ultima_validacion > self.intervalo_validacion:
             print(Fore.YELLOW + "🕵️ Ejecutando validación periódica de posiciones...")
-            
             try:
-                # Obtenemos la verdad de Binance
                 simbolos_en_exchange = self.gestor_ejecucion.obtener_todos_simbolos_con_posicion()
-                
                 cambios = 0
                 for par, estrategia in self.estrategias_activas.items():
                     estado_memoria = estrategia.posicion_abierta
@@ -126,98 +112,63 @@ class BotController:
                     
                     if estado_memoria != estado_real:
                         print(f"{Fore.MAGENTA}⚠️ CORRECCIÓN {par}: Memoria({estado_memoria}) -> Real({estado_real})")
-                        
-                        # Actualizamos la memoria
                         estrategia.posicion_abierta = estado_real
                         cambios += 1
-                        
-                        # 🔥 CORRECCIÓN FANTASMA: Si la realidad es que NO hay posición, limpiamos todo.
                         if not estado_real:
                             print(f"{Fore.YELLOW}🧹 Detectado cierre externo en {par}. Borrando TP/SL restantes...")
                             self.gestor_ejecucion.cancelar_ordenes_pendientes(par)
-                
                 if cambios == 0:
                     print(Fore.GREEN + "✅ Sincronización correcta. Todo en orden.")
-                
             except Exception as e:
                 print(Fore.RED + f"❌ Error en validación periódica: {e}")
-            
             self.ultima_validacion = time.time()
 
     def procesar_vela(self, simbolo, kline_data):
-        """
-        Ciclo Principal: Validación -> Semáforo -> Estrategia -> Ejecución
-        """
-        # 1. Ejecutar validación de seguridad si toca
         self.validar_sincronizacion_periodica()
 
         estrategia = self.estrategias_activas.get(simbolo)
         if not estrategia: return
 
-        # 2. SEMÁFORO DE POSICIONES
         total_abiertas = sum(1 for e in self.estrategias_activas.values() if e.posicion_abierta)
         limite_trades = self.config_global.get('max_trades_abiertos', 5)
-        
-        # Si NO estoy dentro Y ya no hay cupo -> Hibernar
         en_hibernacion = (not estrategia.posicion_abierta) and (total_abiertas >= limite_trades)
 
-        # 3. GESTIÓN DE SALIDA (Trailing Stop)
-        # Prioridad absoluta: Si estoy dentro, gestiono la salida independientemente del límite
-        # 3. GESTIÓN DE SALIDA (Trailing Stop)
         if estrategia.posicion_abierta:
-            if kline_data['x']: # Cierre de vela
-                # Chequeo rápido de seguridad
+            if kline_data['x']: 
                 sigue_abierta = self.gestor_ejecucion.obtener_posicion_abierta(simbolo)
-                
                 if not sigue_abierta:
-                    # Si Binance dice que cerró (SL o TP hit), liberamos memoria Y LIMPIAMOS
                     print(f"{Fore.YELLOW}🔓 Posición cerrada externamente en {simbolo}.")
                     estrategia.posicion_abierta = False
-                    
-                    # 🔥 CORRECCIÓN FANTASMA: Borrar el TP que sobró
                     self.gestor_ejecucion.cancelar_ordenes_pendientes(simbolo)
-                    
-                    return # Salimos para no seguir procesando
+                    return 
 
                 datos_pos = self.gestor_ejecucion.obtener_datos_posicion(simbolo)
                 if datos_pos:
                     self.aplicar_trailing_stop(simbolo, estrategia, datos_pos)
         
-        # 4. PROCESAR ESTRATEGIA
-        # Si estamos hibernando, 'ejecutar_analisis=False' ahorra CPU
         senal = estrategia.recibir_vela(simbolo, kline_data, ejecutar_analisis=not en_hibernacion)
 
-        if en_hibernacion:
-            return # No hacemos nada más si no hay cupo
+        if en_hibernacion: return 
 
-        # 5. GESTIÓN DE ENTRADA
         if not estrategia.posicion_abierta:
             if senal in ["COMPRA", "VENTA"]:
-                # Doble check del semáforo antes de disparar dinero real
                 if total_abiertas < limite_trades:
                     self.gestionar_ejecucion(simbolo, senal, estrategia)
                 else:
                     print(f"{Fore.LIGHTBLACK_EX}⛔ Señal ignorada en {simbolo}: Límite alcanzado ({total_abiertas}/{limite_trades})")
 
-
     def aplicar_trailing_stop(self, simbolo, estrategia, datos_pos):
-        """
-        Trailing Stop con ROE REAL (Corregido + Protección Volatilidad + Anti-Rechazo Binance).
-        """
         entry_price = datos_pos['entryPrice']
         mark_price = datos_pos['markPrice']
         lado = datos_pos['side']
         lev = self.config_pares[simbolo].get('apalancamiento', 1)
 
-        # 1. Calcular Delta Porcentual del Precio
         if lado == 'buy':
             delta_precio = (mark_price - entry_price) / entry_price
         else:
             delta_precio = (entry_price - mark_price) / entry_price
 
-        # 2. CALCULAR ROE REAL (Delta * Leverage)
         roe_real = delta_precio * lev 
-
         orden_sl = self.gestor_ejecucion.obtener_orden_stop_loss(simbolo)
         if not orden_sl: return
         sl_actual = float(orden_sl['stopPrice'])
@@ -225,45 +176,28 @@ class BotController:
         nuevo_sl = None
         motivo = ""
 
-        # --- FASE A: MAXIMIZACIÓN (ROE > 10%) -> Híbrido ATR + Breakeven ---
         if roe_real >= 0.10: 
             atr = estrategia.calcular_atr(periodo=14) 
-            
             if atr > 0:
                 distancia_atr = 2 * atr 
-                # Calculamos el Breakeven de seguridad también aquí
                 margen_fee = entry_price * 0.0015 
-
                 if lado == 'buy':
                     target_atr = mark_price - distancia_atr
                     target_be = entry_price + margen_fee
-                    
-                    # LÓGICA DE PROTECCIÓN:
-                    # Elegimos el MAYOR (el que esté más arriba) para asegurar ganancia.
-                    # Si el ATR es muy amplio, al menos nos quedamos en Breakeven.
                     target_final = max(target_atr, target_be)
-                    
                     if target_final > sl_actual:
                         nuevo_sl = target_final
                         motivo = f"Trailing Dinámico (ROE {roe_real*100:.1f}%)"
-
-                else: # SHORT
+                else: 
                     target_atr = mark_price + distancia_atr
                     target_be = entry_price - margen_fee
-                    
-                    # LÓGICA DE PROTECCIÓN:
-                    # Elegimos el MENOR (el que esté más abajo) para asegurar ganancia.
                     target_final = min(target_atr, target_be)
-                    
                     if target_final < sl_actual:
                         nuevo_sl = target_final
                         motivo = f"Trailing Dinámico (ROE {roe_real*100:.1f}%)"
         
-        # --- FASE B: BREAKEVEN SIMPLE (ROE > 5%) ---
         elif roe_real >= 0.05:
-            # Cubrir fees (aprox 0.15% del precio base)
             margen_fee = entry_price * 0.0015 
-            
             if lado == 'buy':
                 target = entry_price + margen_fee
                 if target > sl_actual: 
@@ -275,46 +209,46 @@ class BotController:
                     nuevo_sl = target
                     motivo = f"Breakeven (ROE {roe_real*100:.1f}%)"
 
-        # Ejecutar modificación si corresponde
         if nuevo_sl:
-            # --- VALIDACIÓN DE DISTANCIA MÍNIMA (Anti-Rechazo Binance) ---
-            # Evita error "Order would trigger immediately" si el precio está muy cerca
-            distancia_seguridad = mark_price * 0.002 # 0.2% de distancia mínima
-            
+            distancia_seguridad = mark_price * 0.002 
             es_seguro = False
             if lado == 'buy':
-                # En Long, el SL debe estar DEBAJO del precio actual
-                if nuevo_sl < (mark_price - distancia_seguridad):
-                    es_seguro = True
+                if nuevo_sl < (mark_price - distancia_seguridad): es_seguro = True
             else:
-                # En Short, el SL debe estar ENCIMA del precio actual
-                if nuevo_sl > (mark_price + distancia_seguridad):
-                    es_seguro = True
+                if nuevo_sl > (mark_price + distancia_seguridad): es_seguro = True
             
             if es_seguro:
                 print(f"{Fore.CYAN}🚀 {motivo}: Moviendo SL de {sl_actual} a {nuevo_sl}")
-                
-                # CORRECCIÓN AQUÍ: Pasamos 'lado' como 4to argumento
                 self.gestor_ejecucion.modificar_stop_loss(simbolo, orden_sl['id'], nuevo_sl, lado)
-                
                 TradeLogger.registrar(simbolo, "TRAILING_UPDATE", nuevo_sl, f"{motivo}")
-            else:
-                # (Opcional) Log para saber por qué espera
-                # print(f"{Fore.YELLOW}⚠️ Trailing omitido: El nuevo SL ({nuevo_sl}) está muy cerca del precio actual ({mark_price}). Esperando...")
-                pass
 
     def gestionar_ejecucion(self, simbolo, senal, estrategia):
         if estrategia.posicion_abierta: return 
 
         lado = "buy" if senal == "COMPRA" else "sell"
         config_cantidad = self.config_pares[simbolo].get('cantidad_operacion', 0)
-        
-        # Obtener Apalancamiento Configurado
         apalancamiento = self.config_pares[simbolo].get('apalancamiento', 1) 
         
+        # ============================================================
+        # 🧠 FILTRO 2: MACHINE LEARNING (AQUÍ ESTÁ LA MAGIA)
+        # ============================================================
+        print(f"🤖 Estrategia Técnica sugiere: {senal}. Consultando al ML...")
+        
+        # Obtenemos las velas recientes para que el ML analice el contexto
+        df_velas_recientes = self.gestor_datos.obtener_velas_historicas(simbolo, self.config_pares[simbolo]['timeframe'], limite=200)
+        
+        if df_velas_recientes is not None and not df_velas_recientes.empty:
+            ml_aprueba = self.gestor_prediccion.predecir_exito(df_velas_recientes)
+            
+            if not ml_aprueba:
+                print(Fore.LIGHTRED_EX + f"⛔ ML FILTRO: Operación cancelada por baja probabilidad en {simbolo}.")
+                return # <--- AQUÍ CORTAMOS SI EL ML DICE NO
+        else:
+            print(Fore.YELLOW + "⚠️ No hay suficientes datos para ML. Saltando filtro.")
+        # ============================================================
+
         precio_actual = self.gestor_datos.obtener_precio(simbolo)
         
-        # Calcular Cantidad
         if isinstance(config_cantidad, str) and '%' in config_cantidad:
             cantidad_final = self.gestor_ejecucion.calcular_cantidad_por_porcentaje(
                 simbolo, config_cantidad, precio_actual, apalancamiento
@@ -326,7 +260,6 @@ class BotController:
 
         print(f"{Fore.MAGENTA}⚡ ALERTA: {lado.upper()} {simbolo} (Cant: {cantidad_final})...")
         
-        # Ejecutar Entrada
         orden = self.gestor_ejecucion.colocar_orden_mercado(simbolo, lado, cantidad_final)
         
         if orden:
@@ -335,12 +268,8 @@ class BotController:
             if precio_fill == 0.0: precio_fill = precio_actual
             
             print(f"{Fore.GREEN}✅ ENTRADA CONFIRMADA: {simbolo} | Precio: {precio_fill}")
-            
-            # [LOG CSV] Registrar Entrada
             TradeLogger.registrar(simbolo, f"ENTRADA_{lado.upper()}", precio_fill, f"Cant: {cantidad_final} | Lev: {apalancamiento}x")
 
-            # --- PROTECCIONES INICIALES ---
-            # Recargamos config por seguridad para tener el riesgo fresco
             full_conf = Config.cargar_configuracion()
             riesgo = full_conf.get('sistema_riesgo', {})
             sl_pct = riesgo.get('stop_loss_pct', 0.02)
@@ -357,7 +286,6 @@ class BotController:
                 tp_pct=tp_pct 
             )
 
-            # [LOG CSV] Registrar SL Inicial (AQUÍ ESTÁ LA LÍNEA QUE FALTABA)
             precio_sl_inicial = precio_fill * (1 - sl_pct) if lado == 'buy' else precio_fill * (1 + sl_pct)
             TradeLogger.registrar(simbolo, "SL_INICIAL", precio_sl_inicial, f"Distancia: {sl_pct*100}%")
 
