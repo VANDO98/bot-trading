@@ -14,8 +14,10 @@ from Core.Utils.GestorPrediccion import GestorPrediccion
 from Core.Ejecucion.GestorEjecucionPaper import GestorEjecucionPaper
 
 # Estrategias
-from Estrategias.Concretas.EstrategiaRSI import EstrategiaRSI
-from Estrategias.Concretas.EstrategiaRSI_ADX import EstrategiaRSI_ADX
+#from Estrategias.Concretas.EstrategiaRSI import EstrategiaRSI
+#from Estrategias.Concretas.EstrategiaRSI_ADX import EstrategiaRSI_ADX
+from Estrategias.Selector import Selector 
+
 
 class BotController:
     """
@@ -28,12 +30,9 @@ class BotController:
     def __init__(self):
         print(Fore.YELLOW + "🤖 Inicializando BotController v2.9.3 (FINAL)...")
         
-        self.mostrar_dashboard = False 
+        self.mostrar_dashboard = True #False para iniciar sin dashboard
 
-        self.catalogo_estrategias = { 
-            "EstrategiaRSI": EstrategiaRSI,
-            "EstrategiaRSI_ADX": EstrategiaRSI_ADX
-        }
+        # Catálogo de Estrategias desde el Selector (Factory Pattern)
         
         # =======================================================
         # 1. CARGA DE CONFIGURACIÓN (PRIMERO QUE TODO)
@@ -85,12 +84,14 @@ class BotController:
             nombre_clase = cfg.get('estrategia')
             params = cfg.get('parametros_estrategia', {})
             
-            ClaseEstrategia = self.catalogo_estrategias.get(nombre_clase)
+            # --- CAMBIO CLAVE: USAR EL SELECTOR ---
+            instancia = Selector.obtener_estrategia(nombre_clase, par, params)
             
-            if ClaseEstrategia:
-                instancia = ClaseEstrategia(nombre=par, parametros_json=params)
+            if instancia:
                 self.estrategias_activas[par] = instancia
                 print(f"   ✅ {par} -> Lista ({nombre_clase})")
+            else:
+                print(f"   ⚠️ {par} -> Estrategia no encontrada, omitiendo.")
 
     def iniciar(self):
         if not self.estrategias_activas:
