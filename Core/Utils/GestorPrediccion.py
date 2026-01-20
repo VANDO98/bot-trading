@@ -1,95 +1,139 @@
 import os
 import joblib
 import pandas as pd
+import pandas_ta as ta
 from colorama import Fore
 
 # Imports del sistema
 from Core.Utils.Config import Config
 from Core.Utils.ML_Logger import MLLogger
-from Machine_Learning.FeatureEngineering import FeatureEngineering
 
 class GestorPrediccion:
     def __init__(self):
-        self.modelo = None
-        self.feature_eng = FeatureEngineering() 
-        self.features_esperadas = [] # Lista para guardar el ADN del modelo
-        self.cargar_modelo()
+        # Cache para no cargar el disco mil veces
+        # Clave: "BTCUSDT_1h", Valor: Modelo Cargado
+        self.modelos_cache = {} 
+        self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.model_dir = os.path.join(self.root_dir, "Modelos")
 
-    def cargar_modelo(self):
+    def _cargar_modelo_especifico(self, simbolo, timeframe):
+        """Carga dinámica del modelo según par y timeframe"""
+        clave_cache = f"{simbolo}_{timeframe}"
+        
+        if clave_cache in self.modelos_cache:
+            return self.modelos_cache[clave_cache]
+        
+        # Construir ruta: Modelos/1h/modelo_BTCUSDT.joblib
+        simbolo_limpio = simbolo.replace('/', '')
+        ruta_modelo = os.path.join(self.model_dir, timeframe, f"modelo_{simbolo_limpio}.joblib")
+        
+        if os.path.exists(ruta_modelo):
+            try:
+                modelo = joblib.load(ruta_modelo)
+                self.modelos_cache[clave_cache] = modelo
+                # print(f"{Fore.GREEN}🧠 Modelo cargado para {simbolo} ({timeframe})")
+                return modelo
+            except Exception as e:
+                print(Fore.RED + f"❌ Error cargando archivo modelo {simbolo}: {e}")
+                return None
+        else:
+            # Silencioso para no spamear si es un par nuevo sin modelo
+            return None
+
+    def _generar_features_dinamicas(self, df, estrategia_nombre, params):
+        """
+        REPLICA EXACTA de la lógica de TrainModel.py
+        """
+        df = df.copy()
+        
+        # 1. Indicadores Base
+        df['RSI'] = ta.rsi(df['close'], length=14)
         try:
-            root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            ruta_modelo = os.path.join(root_dir, "Machine_Learning", "modelo_rf_trading.joblib")
+            adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
+            col_adx = next((c for c in adx_df.columns if c.startswith('ADX')), None)
+            df['ADX'] = adx_df[col_adx] if col_adx else 0
+        except:
+            df['ADX'] = 0
+
+        # 2. Indicadores Específicos según la estrategia ganadora
+        if estrategia_nombre == "EstrategiaTrend":
+            df['EMA_F'] = ta.ema(df['close'], length=params.get('ema_fast', 9))
+            df['EMA_S'] = ta.ema(df['close'], length=params.get('ema_slow', 21))
+            df['distancia_emas'] = (df['EMA_F'] - df['EMA_S']) / df['close']
             
-            if os.path.exists(ruta_modelo):
-                self.modelo = joblib.load(ruta_modelo)
-                
-                # 🔥 AUTO-DETECCIÓN DE COLUMNAS (La clave del éxito)
-                if hasattr(self.modelo, "feature_names_in_"):
-                    self.features_esperadas = list(self.modelo.feature_names_in_)
-                    print(Fore.GREEN + f"🧠 Modelo ML cargado. Espera {len(self.features_esperadas)} variables.")
-                else:
-                    print(Fore.YELLOW + "⚠️ El modelo no tiene metadatos de columnas. Se usará modo manual.")
-            else:
-                print(Fore.RED + f"⚠️ No se encontró el modelo en: {ruta_modelo}")
-        except Exception as e:
-            print(Fore.RED + f"❌ Error cargando modelo ML: {e}")
+        elif estrategia_nombre == "EstrategiaBB":
+            bb = ta.bbands(df['close'], length=params.get('bb_length', 20), std=params.get('bb_std', 2.0))
+            if bb is not None:
+                col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+                col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
+                if col_u and col_l:
+                    df['dist_upper'] = df['close'] - bb[col_u]
+                    df['dist_lower'] = df['close'] - bb[col_l]
+        
+        # Rellenar ceros para no romper predicción
+        df.fillna(0, inplace=True)
+        return df
 
-    def predecir_exito(self, simbolo, df_velas):
-        if self.modelo is None: return True 
+    def predecir_exito(self, simbolo, df_velas, config_par):
+        """
+        Método principal actualizado.
+        Requiere 'config_par' para saber timeframe y parámetros.
+        """
+        # Extraer configuración del par
+        timeframe = config_par.get('timeframe', '5m')
+        estrategia_nombre = config_par.get('estrategia')
+        params = config_par.get('parametros_estrategia', {})
 
-        # 1. Leer Umbral Configurado
+        # 1. Cargar Modelo Específico
+        modelo = self._cargar_modelo_especifico(simbolo, timeframe)
+        
+        if modelo is None:
+            # Si no hay modelo entrenado para este par, ¿qué hacemos?
+            # Opción A: Bloquear (Conservador) -> return False
+            # Opción B: Dejar pasar (Arriesgado) -> return True
+            # Recomendación: Dejar pasar si estamos en test, bloquear en real.
+            # Por ahora retornamos True para no detener pares nuevos, pero con aviso.
+            # print(Fore.YELLOW + f"⚠️ Sin modelo ML para {simbolo}. Operando sin filtro.")
+            return True 
+
         try:
+            # 2. Leer Umbral
             full_conf = Config.cargar_configuracion()
             umbral_config = full_conf.get('sistema_riesgo', {}).get('ml_threshold', 0.65)
-        except:
-            umbral_config = 0.65
 
-        try:
-            # 2. Generar Features (Calcula TODO: Features + Intermedios)
-            df_features = self.feature_eng.aplicar_features(df_velas.copy())
-            
-            # Limpieza básica de N/A
-            df_features = df_features.dropna()
-            if df_features.empty: return False
-
-            # 3. FILTRADO QUIRÚRGICO DE COLUMNAS
-            # Aquí es donde arreglamos el error. Seleccionamos SOLO lo que el modelo pide.
+            # 3. Generar Features (IGUAL QUE EN ENTRENAMIENTO)
+            df_features = self._generar_features_dinamicas(df_velas, estrategia_nombre, params)
             ultima_fila = df_features.iloc[[-1]]
-            
-            if self.features_esperadas:
-                # Verificamos que todas las columnas existan
-                faltantes = [col for col in self.features_esperadas if col not in ultima_fila.columns]
+
+            # 4. Filtrar Columnas
+            # El modelo tiene guardado qué columnas necesita
+            if hasattr(modelo, "feature_names_in_"):
+                cols_modelo = list(modelo.feature_names_in_)
+                # Validar que las tenemos todas
+                faltantes = [c for c in cols_modelo if c not in ultima_fila.columns]
                 if faltantes:
-                    print(Fore.RED + f"⛔ Error Data: Faltan columnas requeridas por el modelo: {faltantes}")
+                    print(Fore.RED + f"⛔ Error ML {simbolo}: Faltan columnas {faltantes}")
                     return False
                 
-                # Seleccionamos SOLO las 9 columnas del entrenamiento (ignorando ATR, EMA_200, etc.)
-                X_input = ultima_fila[self.features_esperadas]
-            else:
-                # Fallback por si el modelo es muy viejo (no debería pasar con tu test actual)
-                cols_excluir = ['timestamp', 'time', 'open', 'high', 'low', 'close', 'volume', 'target', 'TARGET']
-                cols_modelo = [c for c in ultima_fila.columns if c.lower() not in cols_excluir]
                 X_input = ultima_fila[cols_modelo]
+            else:
+                # Fallback legado
+                return True
 
-            # 4. Predicción
-            probabilidad = self.modelo.predict_proba(X_input)[0][1] 
-
-            # 5. Decisión
+            # 5. Predicción
+            probabilidad = modelo.predict_proba(X_input)[0][1] 
             es_aprobado = (probabilidad >= umbral_config)
             
-            # 6. Logging
+            # 6. Logging Visual
             color = Fore.GREEN if es_aprobado else Fore.RED
-            icono = "🎯" if es_aprobado else "🛑"
+            icono = "🧠"
+            print(f"{color}{icono} ML {simbolo} ({timeframe}): Confianza {probabilidad:.1%} (Req: {umbral_config:.1%}) -> {'SI' if es_aprobado else 'NO'}")
             
-            print(f"{color}{icono} ML {simbolo}: Prob {probabilidad:.1%} vs Req {umbral_config:.1%} -> {'APROBADO' if es_aprobado else 'DENEGADO'}")
-            
-            # Guardamos Log Completo
+            # Registrar
             MLLogger.registrar_prediccion(simbolo, probabilidad, umbral_config, es_aprobado, ultima_fila)
 
             return es_aprobado
 
         except Exception as e:
-            print(Fore.RED + f"⚠️ Error predicción ML: {e}")
-            # Fail-Safe: Si falla, NO operamos
-            print(Fore.RED + "⛔ BLOQUEO DE SEGURIDAD: Error técnico en ML.")
-            return False
+            print(Fore.RED + f"⚠️ Error predicción ML {simbolo}: {e}")
+            return False # Ante la duda, NO operar

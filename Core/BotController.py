@@ -276,54 +276,50 @@ class BotController:
     def gestionar_ejecucion(self, simbolo, senal, estrategia):
         """
         Maneja la ejecución de órdenes con filtro de Machine Learning.
-        OPTIMIZADO: Usa datos en memoria (Zero-Latency) en lugar de REST API.
         """
         if estrategia.posicion_abierta: return 
 
         lado = "buy" if senal == "COMPRA" else "sell"
-        config_cantidad = self.config_pares[simbolo].get('cantidad_operacion', 0)
-        apalancamiento = self.config_pares[simbolo].get('apalancamiento', 1) 
+        
+        # Datos del Config
+        cfg_par = self.config_pares[simbolo] # <--- Obtenemos la config completa
+        config_cantidad = cfg_par.get('cantidad_operacion', 0)
+        apalancamiento = cfg_par.get('apalancamiento', 1) 
         
         # ============================================================
-        # 🧠 FILTRO 2: MACHINE LEARNING (ZERO-LATENCY)
+        # 🧠 FILTRO 2: MACHINE LEARNING (EVOLUTIVO V3)
         # ============================================================
         print(f"🤖 Estrategia Técnica sugiere: {senal}. Consultando al ML...")
         
-        # [CORRECCIÓN] Usamos directamente la memoria de la estrategia
-        # Esto evita la latencia de pedir datos a la API nuevamente.
-        df_velas_recientes = None
-
         try:
             if estrategia.velas is None or estrategia.velas.empty:
-                print(Fore.RED + "⛔ Error Data: La estrategia no tiene velas en memoria para analizar.")
-                return # Bloqueo
+                print(Fore.RED + "⛔ Error Data: La estrategia no tiene velas en memoria.")
+                return 
 
-            # Copiamos para no afectar el flujo principal
-            df_velas_recientes = estrategia.velas.copy()
+            # Validación de cantidad mínima de datos (para EMA 200, etc.)
+            if len(estrategia.velas) < 200:
+                print(Fore.YELLOW + f"⚠️ Data insuficiente en memoria ({len(estrategia.velas)} velas).")
+                return 
 
-            # Validación de cantidad mínima de datos para los indicadores del ML
-            # El modelo necesita contexto (ej: 200 velas) para calcular medias, RSI, etc.
-            if len(df_velas_recientes) < 200:
-                print(Fore.YELLOW + f"⚠️ Data insuficiente en memoria ({len(df_velas_recientes)} velas). Esperando recolección...")
-                return # Bloqueo
-
-            # VALIDACIÓN Y PREDICCIÓN
-            # Las columnas en EstrategiaBase ya son: timestamp, open, high, low, close, volume
-            # No hace falta renombrar ni traducir nada.
-            ml_aprueba = self.gestor_prediccion.predecir_exito(simbolo, df_velas_recientes)
+            # --- CAMBIO CRÍTICO AQUÍ ---
+            # Pasamos 'cfg_par' que contiene timeframe, estrategia y parámetros
+            ml_aprueba = self.gestor_prediccion.predecir_exito(
+                simbolo, 
+                estrategia.velas.copy(),
+                cfg_par 
+            )
             
             if not ml_aprueba:
-                print(Fore.LIGHTRED_EX + f"⛔ ML FILTRO: Operación cancelada por baja probabilidad en {simbolo}.")
-                return # Bloqueo Estratégico
+                print(Fore.LIGHTRED_EX + f"⛔ ML FILTRO: Operación cancelada por riesgo alto en {simbolo}.")
+                return 
 
         except Exception as e:
-            print(Fore.RED + f"❌ Excepción crítica en preparación de datos ML: {e}")
-            return # Bloqueo Total
+            print(Fore.RED + f"❌ Excepción crítica en ML: {e}")
+            return 
 
         # ============================================================
         # 🚀 EJECUCIÓN (Si ML aprueba)
         # ============================================================
-
         precio_actual = self.gestor_datos.obtener_precio(simbolo)
         
         if isinstance(config_cantidad, str) and '%' in config_cantidad:
