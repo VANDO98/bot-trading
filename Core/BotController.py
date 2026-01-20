@@ -30,7 +30,7 @@ class BotController:
     def __init__(self):
         print(Fore.YELLOW + "🤖 Inicializando BotController v2.9.3 (FINAL)...")
         
-        self.mostrar_dashboard = True #False para iniciar sin dashboard
+        self.mostrar_dashboard = False #False para iniciar sin dashboard
 
         # Catálogo de Estrategias desde el Selector (Factory Pattern)
         
@@ -93,6 +93,74 @@ class BotController:
             else:
                 print(f"   ⚠️ {par} -> Estrategia no encontrada, omitiendo.")
 
+
+################ NUEVO METODO AÑADIDO, EN REVISION
+
+    def sincronizar_ordenes_seguridad(self):
+        """
+        [NUEVO] Revisa todas las posiciones abiertas y asegura que tengan 
+        su Stop Loss y Take Profit configurados según el riesgo del JSON.
+        """
+        print(f"{Fore.CYAN}🔄 Iniciando Sincronización de Seguridad Profunda...")
+        
+        try:
+            # 1. Obtener todas las posiciones reales desde el Exchange
+            activos_reales = self.gestor_ejecucion.obtener_todos_simbolos_con_posicion()
+            
+            if not activos_reales:
+                print(f"{Fore.GREEN}✅ No hay posiciones abiertas que proteger.")
+                return
+
+            # Cargar configuración de riesgo una vez
+            full_conf = Config.cargar_configuracion()
+            riesgo = full_conf.get('sistema_riesgo', {})
+            sl_pct = riesgo.get('stop_loss_pct', 0.02)
+            tp_pct = riesgo.get('take_profit_pct', 0.10)
+
+            for par in activos_reales:
+                if par not in self.estrategias_activas: continue
+                
+                print(f"\n{Fore.YELLOW}🛡️ Verificando protección para {par}...")
+                
+                # Obtener datos de la posición (lado, precio entrada, cantidad)
+                datos_pos = self.gestor_ejecucion.obtener_datos_posicion(par)
+                if not datos_pos: continue
+
+                lado_entrada = 'buy' if datos_pos['side'] == 'buy' else 'sell'
+                cantidad = datos_pos['amount']
+                precio_entrada = datos_pos['entryPrice']
+
+                # 2. Buscar si ya existen órdenes SL y TP abiertas
+                # Usamos el exchange directamente para asegurar datos frescos
+                ordenes_abiertas = self.gestor_ejecucion.exchange.fetch_open_orders(par)
+                
+                # Identificamos si hay algún Stop Market (SL) y algún Take Profit o Limit (TP)
+                tiene_sl = any(o.get('type','').upper() in ['STOP_MARKET', 'STOP'] and o.get('reduceOnly') for o in ordenes_abiertas)
+                tiene_tp = any(o.get('type','').upper() in ['TAKE_PROFIT_MARKET', 'LIMIT'] and o.get('reduceOnly') for o in ordenes_abiertas)
+
+                # 3. Reparar si falta algo
+                if not tiene_sl or not tiene_tp:
+                    print(f"{Fore.MAGENTA}⚠️ Faltan protecciones en {par}. Reparando...")
+                    self.gestor_ejecucion.colocar_ordenes_salida(
+                        simbolo=par,
+                        lado_entrada=lado_entrada,
+                        cantidad=cantidad,
+                        precio_entrada=precio_entrada,
+                        sl_pct=sl_pct,
+                        tp_pct=tp_pct
+                    )
+                    print(f"{Fore.GREEN}✅ Protecciones restablecidas para {par}.")
+                else:
+                    print(f"{Fore.GREEN}✅ {par} ya cuenta con SL y TP activos.")
+
+                # Sincronizar estado en memoria
+                self.estrategias_activas[par].posicion_abierta = True
+
+        except Exception as e:
+            print(f"{Fore.RED}❌ Error crítico en Sincronización de Seguridad: {e}")
+    
+##########################
+
     def iniciar(self):
         if not self.estrategias_activas:
             print(Fore.RED + "❌ No hay estrategias. Abortando.")
@@ -104,6 +172,10 @@ class BotController:
             activos_reales = self.gestor_ejecucion.obtener_todos_simbolos_con_posicion()
         except:
             activos_reales = []
+
+        # --- PASO B: SINCRONIZACIÓN DE SEGURIDAD (LA CLAVE) ---
+        # Esto revisa Binance y pone SL/TP si reiniciaste el bot con trades abiertos
+        self.sincronizar_ordenes_seguridad()
 
         for par, estrategia in self.estrategias_activas.items():
             lev = self.config_pares[par].get('apalancamiento', 1)

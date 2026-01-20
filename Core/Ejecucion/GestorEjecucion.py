@@ -231,60 +231,72 @@ class GestorEjecucion:
             return None
 
     def obtener_orden_stop_loss(self, simbolo):
-        """Busca la ID de la orden STOP_MARKET activa."""
+        """
+        Busca la ID de la orden STOP_MARKET activa, asegurándose de que sea 
+        realmente un Stop Loss y no un Take Profit de mercado.
+        """
         try:
+            # Necesitamos el precio de entrada para saber cuál es el SL
+            pos = self.obtener_datos_posicion(simbolo)
+            if not pos: return None
+            
+            entry_price = float(pos['entryPrice'])
+            lado_posicion = pos['side']
+
             ordenes = self.exchange.fetch_open_orders(simbolo)
             for o in ordenes:
-                # --- CORRECCIÓN CRÍTICA ---
-                # Convertimos a mayúsculas (.upper()) para asegurar coincidencia
                 tipo = o.get('type', '').upper()
                 reduce = o.get('reduceOnly', False)
+                stop_price = float(o.get('stopPrice', 0))
                 
-                # Aceptamos 'STOP_MARKET' o 'STOP' (algunos exchanges varían)
+                # 1. Filtro básico de tipo
                 if (tipo == 'STOP_MARKET' or tipo == 'STOP') and reduce:
-                    return o
+                    
+                    # 2. FILTRO DE PRECIO (La clave para no borrar el Take Profit)
+                    if lado_posicion == 'buy': # LONG
+                        # En Long, el SL está siempre ABAJO del precio de entrada
+                        if stop_price < entry_price:
+                            return o
+                    else: # SHORT
+                        # En Short, el SL está siempre ARRIBA del precio de entrada
+                        if stop_price > entry_price:
+                            return o
             return None
         except Exception as e:
-            print(Fore.RED + f"⚠️ No encuentro el Stop Loss de {simbolo}: {e}")
+            print(Fore.RED + f"⚠️ Error buscando Stop Loss de {simbolo}: {e}")
             return None
 
     def modificar_stop_loss(self, simbolo, orden_id, nuevo_precio_stop, lado_posicion):
         """
-        ESTRATEGIA ROBUSTA CON ROLLBACK:
-        1. Cancela la orden vieja.
-        2. Intenta crear la nueva.
-        3. SI FALLA: Restaura inmediatamente la orden vieja (Rollback) para no quedar desprotegido.
+        MODIFICACIÓN CON FILTRO DE IDENTIDAD Y ROLLBACK DE SEGURIDAD.
         """
-        # Variables de respaldo
         cantidad_original = 0.0
         precio_stop_original = 0.0
         lado_orden = 'sell' if lado_posicion == 'buy' else 'buy'
 
         try:
-            # 1. PREPARACIÓN Y RESPALDO DE DATOS
+            # 1. PREPARACIÓN Y RESPALDO
             precio_flotante = float(nuevo_precio_stop)
             nuevo_precio = self.exchange.price_to_precision(simbolo, precio_flotante)
             
-            print(Fore.MAGENTA + f"🔄 Trailing: Actualizando SL en {simbolo} a ${nuevo_precio}...")
-
-            # Leemos la orden vieja ANTES de borrarla para tener copia de seguridad
+            # Respaldo de datos de la orden actual antes de cancelarla
             try:
                 orden_vieja = self.exchange.fetch_order(orden_id, simbolo)
                 cantidad_original = float(orden_vieja['amount'])
-                precio_stop_original = float(orden_vieja['stopPrice']) # Guardamos el precio viejo
+                precio_stop_original = float(orden_vieja['stopPrice'])
             except Exception as e:
                 print(Fore.RED + f"❌ Error leyendo orden vieja (abortando): {e}")
                 return False
 
-            # 2. CANCELAR LA ORDEN VIEJA
+            print(Fore.MAGENTA + f"🔄 Trailing: Moviendo SL de {simbolo} (${precio_stop_original} -> ${nuevo_precio})")
+
+            # 2. CANCELACIÓN
             try:
                 self.exchange.cancel_order(orden_id, simbolo)
             except Exception as e:
-                print(Fore.YELLOW + f"⚠️ No se pudo cancelar orden vieja (quizás ya no existe): {e}")
-                # Si no pudimos cancelar, probablemente no podamos crear la nueva sin duplicar riesgo,
-                # pero en reduceOnly no suele ser grave. Continuamos con cautela.
+                print(Fore.YELLOW + f"⚠️ No se pudo cancelar orden vieja: {e}")
 
-            # 3. CREAR LA NUEVA ORDEN (INTENTO CRÍTICO)
+            # 3. CREACIÓN DE LA NUEVA ORDEN (TRAILING)
             try:
                 nueva_orden = self.exchange.create_order(
                     symbol=simbolo,
@@ -296,38 +308,35 @@ class GestorEjecucion:
                         'reduceOnly': True
                     }
                 )
-                print(Fore.GREEN + f"✅ SL Actualizado con éxito. Nuevo ID: {nueva_orden['id']}")
+                print(Fore.GREEN + f"✅ Trailing exitoso. Nuevo ID: {nueva_orden['id']}")
                 return True
 
             except Exception as error_creacion:
-                # 🚨 ALERTA ROJA: FALLÓ LA NUEVA ORDEN 🚨
-                # El usuario está DESPROTEGIDO ahora mismo.
-                print(Fore.RED + f"❌ FALLÓ CREACIÓN DE NUEVO SL: {error_creacion}")
-                print(Fore.YELLOW + "🛡️ INICIANDO ROLLBACK DE EMERGENCIA (Restaurando SL anterior)...")
+                # 🚨 ROLLBACK DE EMERGENCIA 🚨
+                print(Fore.RED + f"❌ FALLÓ TRAILING: {error_creacion}")
+                print(Fore.YELLOW + "🛡️ RESTAURANDO SL ORIGINAL PARA PROTEGER LA CUENTA...")
                 
                 try:
-                    # 4. ROLLBACK: VOLVER A PONER EL SL VIEJO
                     self.exchange.create_order(
                         symbol=simbolo,
                         type='STOP_MARKET',
                         side=lado_orden,
                         amount=cantidad_original,
                         params={
-                            'stopPrice': precio_stop_original, # Usamos el precio VIEJO
+                            'stopPrice': self.exchange.price_to_precision(simbolo, precio_stop_original),
                             'reduceOnly': True
                         }
                     )
-                    print(Fore.GREEN + f"✅ ROLLBACK EXITOSO: Se restauró el SL original en {precio_stop_original}")
+                    print(Fore.GREEN + f"✅ ROLLBACK EXITOSO: SL restaurado en ${precio_stop_original}")
                 except Exception as error_rollback:
-                    # Si esto falla, es una situación catastrófica (falla de internet total o API caída)
-                    print(Fore.RED + f"💀 ERROR CATASTRÓFICO: No se pudo restaurar el SL. POSICIÓN DESPROTEGIDA. {error_rollback}")
+                    print(Fore.RED + f"💀 ERROR CATASTRÓFICO: Posición desprotegida en {simbolo}. {error_rollback}")
                 
                 return False
 
         except Exception as e:
-            print(Fore.RED + f"❌ Error general en proceso de modificación: {e}")
+            print(Fore.RED + f"❌ Error general en modificación: {e}")
             return False
-
+            
     # --- NUEVO MÉTODO PARA VALIDACIÓN PERIÓDICA ---
     def obtener_todos_simbolos_con_posicion(self):
         """
