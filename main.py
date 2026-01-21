@@ -25,21 +25,6 @@ def ciclo_principal():
     # 1. Inicializar Cerebro
     bot = BotController()
     
-    # 2. Inicializar Telegram
-    telegram_token = os.getenv("TELEGRAM_TOKEN")
-    telegram_id = os.getenv("TELEGRAM_ID")
-    telegram_bot = None
-
-    if telegram_token and telegram_id:
-        try:
-            print(Fore.CYAN + "📡 Conectando Telegram...")
-            telegram_bot = TelegramManager(telegram_token, telegram_id, bot)
-            telegram_bot.iniciar()
-        except Exception as e:
-            print(Fore.RED + f"⚠️ Error Telegram: {e}")
-    else:
-        print(Fore.YELLOW + "⚠️ Telegram omitido.")
-
     # 3. Inicializar Dashboard
     dashboard = Dashboard(bot)
     
@@ -47,6 +32,22 @@ def ciclo_principal():
         bot.iniciar()
         print("⏳ Esperando datos de mercado (5 seg)...")
         time.sleep(5)
+
+        # 2. Inicializar Telegram DESPUÉS de que el bot esté listo
+        # CRÍTICO: Evita que comandos antiguos se ejecuten durante la inicialización
+        telegram_token = os.getenv("TELEGRAM_TOKEN")
+        telegram_id = os.getenv("TELEGRAM_ID")
+        telegram_bot = None
+
+        if telegram_token and telegram_id:
+            try:
+                print(Fore.CYAN + "📡 Conectando Telegram...")
+                telegram_bot = TelegramManager(telegram_token, telegram_id, bot)
+                telegram_bot.iniciar()
+            except Exception as e:
+                print(Fore.RED + f"⚠️ Error Telegram: {e}")
+        else:
+            print(Fore.YELLOW + "⚠️ Telegram omitido.")
 
         # 4. BUCLE INFINITO DINÁMICO
         # Ya no hay "if MOSTRAR_DASHBOARD" afuera, ahora se chequea adentro.

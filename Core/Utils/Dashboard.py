@@ -11,7 +11,9 @@ class Dashboard:
         """
         init(autoreset=True)
         self.bot = bot_controller
-        self.ancho = 160 # Aumentamos un poco el ancho por la nueva columna
+        self.ancho = 160 
+        self.inicio = time.time()  # Hora de inicio del dashboard
+        self.last_action_cache = "" # Cache para la última acción
 
     def _limpiar_pantalla(self):
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -30,12 +32,71 @@ class Dashboard:
         if adx_val >= minimo: return Fore.GREEN + Style.BRIGHT
         return Fore.LIGHTBLACK_EX 
 
+    def _leer_ultima_accion(self):
+        """Lee la última línea del CSV de historial para el footer."""
+        try:
+            ruta_csv = os.path.join(os.getcwd(), 'historial_trading.csv')
+            if os.path.exists(ruta_csv):
+                with open(ruta_csv, 'rb') as f:
+                    f.seek(-1024, os.SEEK_END) # Ir al final (aprox)
+                    last = f.readlines()[-1].decode('utf-8').strip()
+                    # Parsear para mostrar bonito: FECHA, PAR, ACCION
+                    parts = last.split(',')
+                    if len(parts) >= 3:
+                        return f"[{parts[0]}] {parts[1]} -> {parts[2]} ({parts[3]})"
+                    return last
+            return "Sin actividad reciente."
+        except:
+            return "Sin datos."
+            
+    def _calcular_countdown(self):
+        """Calcula tiempo restante para cierre de vela (estimado)."""
+        # Tomamos el timeframe del primer par activo como referencia
+        if not self.bot.config_pares: return "N/A"
+        
+        # Asumimos que todos van sincronizados o tomamos el primero
+        par_ref = list(self.bot.config_pares.keys())[0]
+        tf_str = self.bot.config_pares[par_ref].get('timeframe', '1h')
+        
+        # Convertir tf a segundos
+        tf_map = {'1m': 60, '3m': 180, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400}
+        secs = tf_map.get(tf_str, 3600)
+        
+        # Calculo remanente actual
+        now_ts = time.time()
+        remanente = secs - (now_ts % secs)
+        mins = int(remanente // 60)
+        segs = int(remanente % 60)
+        
+        # Color rojo si queda poco
+        color = Fore.RED if remanente < 60 else Fore.CYAN
+        return f"{color}{mins:02d}m {segs:02d}s"
+
     def mostrar(self):
         """Renderiza la tabla completa."""
         self._limpiar_pantalla()
         
-        # Header
-        print(Back.BLUE + Fore.WHITE + f" 🤖 BOT TRADING V3.4 | MODULAR DASHBOARD | {time.strftime('%H:%M:%S')} ".center(self.ancho))
+        # --- METRICAS HEADER ---
+        uptime_sec = time.time() - self.inicio
+        h = int(uptime_sec // 3600)
+        m = int((uptime_sec % 3600) // 60)
+        uptime_str = f"{h}h {m}m"
+        
+        # Balance (Cacheado o Directo si es rápido)
+        bal = self.bot.gestor_ejecucion.obtener_balance_usdt()
+        
+        # Ping Estimado (Simulado o real si tuvieramos timestamp de ws)
+        # Usamos time.time() rapidito
+        t0 = time.time()
+        # Ping falso/rápido para no bloquear (o podriamos usar latency del WS si GestorDatos lo expone)
+        # Por ahora mostramos latencia interna de renderizado
+        ping = int((time.time() - t0) * 1000) 
+        
+        countdown = self._calcular_countdown()
+        
+        # Header Mejorado
+        header_txt = f" 🤖 BOT V3.4 | ⏱️ Up: {uptime_str} | 💰 Bal: ${bal:.2f} | 🕒 Vela: {countdown} "
+        print(Back.BLUE + Fore.WHITE + header_txt.center(self.ancho))
         print(Back.BLACK + "-" * self.ancho)
         # SE AÑADE COLUMNA 'LADO'
         print(f"{'PAR':<12} | {'LADO':<6} | {'PRECIO':<10} | {'RSI':<5} | {'ADX':<5} | {'ROE %':<9} | {'PNL $':<9} | {'SL ACT':<10} | {'SL ATR':<10} | {'ESTADO':<18} | {'SEÑAL'}")
@@ -174,4 +235,8 @@ class Dashboard:
                   f"{senal_txt}")
 
         print("-" * self.ancho)
-        print(f"{Fore.YELLOW}Monitor activo. Ctrl+C para salir.")
+        
+        # Footer con Última Acción
+        last_action = self._leer_ultima_accion()
+        print(f" 📢 Última Acción: {Fore.YELLOW}{last_action}")
+        print(f"{Fore.LIGHTBLACK_EX} Monitor activo (Refresco 5s). Ctrl+C para menú.")

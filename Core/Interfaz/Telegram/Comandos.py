@@ -106,28 +106,30 @@ class GestorComandos:
             except Exception as e:
                 enviar_texto_func(chat_id, f"❌ Error reporte: {e}")
 
-        # 5. DASHBOARD
+        # 5. DASHBOARD (TOGGLE)
         elif cmd == "/dash":
-            modo = args[0].lower() if args else ""
-            if modo == "on":
-                self.bot.mostrar_dashboard = True
+            # Invertimos el estado actual
+            estado_actual = self.bot.mostrar_dashboard
+            nuevo_estado = not estado_actual
+            self.bot.mostrar_dashboard = nuevo_estado
+            
+            if nuevo_estado:
                 enviar_texto_func(chat_id, "📺 **Dashboard ACTIVADO** en consola.")
-            elif modo == "off":
-                self.bot.mostrar_dashboard = False
-                enviar_texto_func(chat_id, "**Dashboard APAGADO** (Modo Silencioso).")
             else:
-                enviar_texto_func(chat_id, "⚠️ Uso: `/dash on` o `/dash off`")
+                enviar_texto_func(chat_id, "🔇 **Dashboard APAGADO** (Modo Silencioso).")
 
         # 6. HELP
         elif cmd == "/help":
             msg = (
                 "📜 **COMANDOS**\n"
                 "/status - Ver posiciones y ML\n"
+                "/posiciones - Detalle PNL/SL/TP\n"
                 "/balance - Ver dinero\n"
                 "/grafica [h] - Top 5 Volatilidad\n"
                 "/reporte [h] - Descargar CSV\n"
                 "/ml [0.0-0.9] - Ajustar filtro IA\n"
-                "/dash [on/off] - Controlar consola\n"
+                "/dash - Activar/Desactivar Dashboard\n"
+                "/reiniciar - Reiniciar Bot (Watchdog)\n"
                 "/config - Ver configuración actual\n"
             )
             enviar_texto_func(chat_id, msg)
@@ -204,5 +206,118 @@ class GestorComandos:
             except Exception as e:
                 enviar_texto_func(chat_id, f"❌ Error leyendo config: {e}")
         
+        # =========================================================
+        # 9. MIS POSICIONES (NUEVO)
+        # =========================================================
+        elif cmd in ["/posiciones", "/pnl"]:
+            try:
+                simbolos_activos = self.bot.gestor_ejecucion.obtener_todos_simbolos_con_posicion()
+                
+                if not simbolos_activos:
+                    enviar_texto_func(chat_id, "🚫 **No hay posiciones abiertas actualmente.**")
+                    return
+
+                msg = "📊 **POSICIONES ACTIVAS**\n"
+                msg += "━━━━━━━━━━━━━━━━\n"
+
+                for simbolo in simbolos_activos:
+                    # 1. Obtener Datos Básicos
+                    datos = self.bot.gestor_ejecucion.obtener_datos_posicion(simbolo)
+                    if not datos: continue
+
+                    # Normalización de claves (Paper vs Real)
+                    entry_price = datos['entryPrice']
+                    mark_price = datos.get('markPrice', 0.0)
+                    if mark_price == 0: 
+                        mark_price = self.bot.gestor_datos.obtener_precio(simbolo)
+
+                    side = datos['side'] # 'buy' o 'sell'
+                    
+                    # 'amount' en Real, 'amt' en Paper
+                    amount = datos.get('amount', datos.get('amt', 0.0))
+
+                    # 2. Calcular PNL y ROE
+                    if side == 'buy':
+                        pnl_puntos = mark_price - entry_price
+                        roe = (pnl_puntos / entry_price) * 100
+                    else:
+                        pnl_puntos = entry_price - mark_price
+                        roe = (pnl_puntos / entry_price) * 100
+                    
+                    pnl_usdt = pnl_puntos * amount
+                    
+                    # 3. Obtener SL y TP
+                    sl_precio = 0.0
+                    tp_precio = 0.0
+
+                    # Detectar si es Paper o Real para buscar órdenes
+                    es_paper = hasattr(self.bot.gestor_ejecucion, 'posiciones')
+                    
+                    if es_paper:
+                        # Modo Paper: Acceso directo al dict de memoria
+                        pos_memoria = self.bot.gestor_ejecucion.posiciones.get(simbolo, {})
+                        sl_precio = pos_memoria.get('sl_price', 0.0)
+                        tp_precio = pos_memoria.get('tp_price', 0.0)
+                    else:
+                        # Modo Real: Consultar API de Open Orders
+                        try:
+                            ordenes = self.bot.gestor_ejecucion.exchange.fetch_open_orders(simbolo)
+                            for o in ordenes:
+                                tipo = o.get('type', '').upper()
+                                reduce = o.get('reduceOnly', False)
+                                precio_ord = float(o.get('stopPrice', o.get('price', 0.0)))
+                                
+                                # SL suele ser STOP_MARKET
+                                if (tipo in ['STOP_MARKET', 'STOP']) and reduce:
+                                    sl_precio = precio_ord
+                                # TP suele ser TAKE_PROFIT_MARKET o LIMIT
+                                elif (tipo in ['TAKE_PROFIT_MARKET', 'TAKE_PROFIT', 'LIMIT']) and reduce:
+                                    # Distinguir TP de otras cosas (simple heurística)
+                                    if side == 'buy' and precio_ord > entry_price:
+                                        tp_precio = precio_ord
+                                    elif side == 'sell' and precio_ord < entry_price:
+                                        tp_precio = precio_ord
+                        except:
+                            pass
+
+                    # 4. Formatear Bloque
+                    icono_lado = "🟢 LONG" if side == 'buy' else "🔴 SHORT"
+                    roi_icono = "🚀" if roe > 0 else "🔻"
+                    
+                    msg += f"\n{icono_lado} | **{simbolo}**\n"
+                    msg += f"🚪 Entrada: **${entry_price:,.2f}**\n"
+                    msg += f"📊 Mark: `${mark_price:,.2f}`\n"
+                    msg += f"💰 PNL: **${pnl_usdt:,.2f}** ({roi_icono} {roe:.2f}%)\n"
+                    
+                    if sl_precio > 0:
+                        msg += f"🛑 SL: `${sl_precio:,.2f}`\n"
+                    else:
+                        msg += f"🛑 SL: ⚠️ NO ACTIVO\n"
+
+                    if tp_precio > 0:
+                        msg += f"🎯 TP: `${tp_precio:,.2f}`\n"
+                    else:
+                        msg += f"🎯 TP: --\n"
+                    
+                    msg += "〰️〰️〰️〰️〰️〰️〰️\n"
+
+                enviar_texto_func(chat_id, msg)
+
+            except Exception as e:
+                enviar_texto_func(chat_id, f"❌ Error recuperando posiciones: {e}")
+
+        # =========================================================
+        # 10. REINICIAR (NUEVO)
+        # =========================================================
+        elif cmd == "/reiniciar":
+            enviar_texto_func(chat_id, "🔄 **Reiniciando Sistema...**\n\nEl bot volverá a estar online en unos segundos.")
+            
+            # Forzamos cierre. El Watchdog lo detectará y volverá a lanzar main.py
+            # Usamos os._exit(0) para matar hilos rebeldes si los hubiera
+            import sys
+            sys.stdout.flush()
+            os._exit(0)
+
+
         else:
             enviar_texto_func(chat_id, "❓ Comando desconocido. Prueba /help")

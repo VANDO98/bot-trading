@@ -1,6 +1,8 @@
 import time
 import threading
 import requests
+import os
+import json
 from colorama import Fore
 from .Comandos import GestorComandos
 
@@ -14,7 +16,8 @@ class TelegramManager:
         
         self.running = False
         self.thread = None
-        self.last_update_id = 0
+        self.offset_file = "telegram_offset.json"  # Archivo para persistir offset
+        self.last_update_id = self._cargar_offset()
 
     def iniciar(self):
         if not self.token or not self.admin_id:
@@ -32,14 +35,21 @@ class TelegramManager:
         self.running = False
         if self.thread:
             self.thread.join(timeout=1)
+        self._guardar_offset()  # Guardar offset al detener
 
     def _loop_polling(self):
         while self.running:
             try:
                 updates = self._get_updates()
                 for update in updates:
-                    self._procesar_mensaje(update)
+                    # Guardamos el ID antes de procesar para confirmar recepción
+                    # Así si el bot muere en _procesar_mensaje (ej: /reiniciar), 
+                    # al volver ya no pedirá este mensaje de nuevo.
                     self.last_update_id = update["update_id"] + 1
+                    self._guardar_offset()  # Persistir inmediatamente
+                    
+                    self._procesar_mensaje(update)
+                    
                 time.sleep(2)
             except Exception as e:
                 print(Fore.RED + f"⚠️ Error Telegram: {e}")
@@ -103,3 +113,24 @@ class TelegramManager:
                 requests.post(f"{self.api_url}/sendDocument", data=payload, files=archivos)
         except Exception as e:
             self.enviar_mensaje(chat_id, f"❌ Error enviando archivo: {e}")
+
+    def _cargar_offset(self):
+        """Carga el último offset desde archivo para evitar reprocesar mensajes."""
+        try:
+            if os.path.exists(self.offset_file):
+                with open(self.offset_file, 'r') as f:
+                    data = json.load(f)
+                    offset = data.get('offset', 0)
+                    print(Fore.CYAN + f"📎 Offset de Telegram recuperado: {offset}")
+                    return offset
+        except Exception as e:
+            print(Fore.YELLOW + f"⚠️ Error cargando offset: {e}")
+        return 0
+
+    def _guardar_offset(self):
+        """Guarda el offset actual en archivo."""
+        try:
+            with open(self.offset_file, 'w') as f:
+                json.dump({'offset': self.last_update_id}, f)
+        except Exception as e:
+            print(Fore.YELLOW + f"⚠️ Error guardando offset: {e}")
