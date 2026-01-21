@@ -58,7 +58,6 @@ class GestorEjecucion:
             print(Fore.RED + f"⚠️ Error leyendo balance: {e}")
             return 0.0
 
-    # --- MÉTODO CORREGIDO AQUÍ 👇 ---
     def calcular_cantidad_por_porcentaje(self, simbolo, porcentaje_str, precio_actual, apalancamiento):
         """
         Calcula cuántas monedas comprar para que el MARGEN sea el % del balance.
@@ -188,12 +187,11 @@ class GestorEjecucion:
             print(Fore.RED + f"⚠️ Error consultando posición de {simbolo}: {e}")
             return False
         
-    # --- MÉTODOS PARA TRAILING STOP (FASE 6) ---
+    # --- MÉTODOS PARA TRAILING STOP ---
 
     def obtener_datos_posicion(self, simbolo):
         """
         Devuelve datos críticos para calcular el Trailing Stop.
-        CORREGIDO: Detección robusta de LONG/SHORT.
         """
         try:
             # Normalización de símbolo para búsqueda robusta
@@ -208,21 +206,17 @@ class GestorEjecucion:
                     
                     if abs(amt) > 0:
                         # --- CORRECCIÓN DE LADO (FIX) ---
-                        # 1. Intentamos leer 'side' que devuelve CCXT ('long' o 'short')
                         lado_api = pos.get('side') 
-                        
-                        # 2. Si CCXT no lo da, miramos el signo en la data cruda de Binance
                         if not lado_api:
                              raw_amt = float(pos['info']['positionAmt'])
                              lado_final = 'buy' if raw_amt > 0 else 'sell'
                         else:
-                             # Normalizamos a 'buy'/'sell' que usa nuestro bot
                              lado_final = 'buy' if lado_api == 'long' else 'sell'
                         
                         return {
                             'entryPrice': float(pos['entryPrice']),
                             'amount': abs(amt),
-                            'side': lado_final, # <--- USAMOS EL LADO CORREGIDO
+                            'side': lado_final,
                             'markPrice': float(pos.get('markPrice', 0))
                         }
             return None
@@ -232,35 +226,23 @@ class GestorEjecucion:
 
     def obtener_orden_stop_loss(self, simbolo):
         """
-        Busca la ID de la orden STOP_MARKET activa, asegurándose de que sea 
-        realmente un Stop Loss y no un Take Profit de mercado.
+        Busca la ID de la orden STOP_MARKET activa.
+        CORREGIDO: Ahora detecta Stop Loss incluso si están en ganancia (Stop Profit).
         """
         try:
-            # Necesitamos el precio de entrada para saber cuál es el SL
             pos = self.obtener_datos_posicion(simbolo)
             if not pos: return None
             
-            entry_price = float(pos['entryPrice'])
-            lado_posicion = pos['side']
-
             ordenes = self.exchange.fetch_open_orders(simbolo)
             for o in ordenes:
                 tipo = o.get('type', '').upper()
                 reduce = o.get('reduceOnly', False)
-                stop_price = float(o.get('stopPrice', 0))
                 
-                # 1. Filtro básico de tipo
+                # Filtro ÚNICO: Tipo correcto y flag de reducción
+                # Sin filtrar por precio para aceptar Stop Profit
                 if (tipo == 'STOP_MARKET' or tipo == 'STOP') and reduce:
-                    
-                    # 2. FILTRO DE PRECIO (La clave para no borrar el Take Profit)
-                    if lado_posicion == 'buy': # LONG
-                        # En Long, el SL está siempre ABAJO del precio de entrada
-                        if stop_price < entry_price:
-                            return o
-                    else: # SHORT
-                        # En Short, el SL está siempre ARRIBA del precio de entrada
-                        if stop_price > entry_price:
-                            return o
+                    return o
+
             return None
         except Exception as e:
             print(Fore.RED + f"⚠️ Error buscando Stop Loss de {simbolo}: {e}")
@@ -341,19 +323,15 @@ class GestorEjecucion:
     def obtener_todos_simbolos_con_posicion(self):
         """
         Devuelve una LISTA de los símbolos que tienen posiciones abiertas (contratos > 0).
-        Optimizado para hacer 1 sola petición a la API en lugar de N peticiones.
+        Optimizado para hacer 1 sola petición a la API.
         """
         try:
             posiciones = self.exchange.fetch_positions()
             simbolos_activos = []
             
             for pos in posiciones:
-                # Filtrar solo las que tienen tamaño > 0
                 if float(pos['contracts']) > 0:
                     raw_symbol = pos['symbol'] # Ej: 'BTC/USDT:USDT'
-                    
-                    # Limpieza para coincidir con tu config (BTC/USDT)
-                    # Si tiene dos puntos (futuros lineales), cortamos
                     simbolo_limpio = raw_symbol.split(':')[0] 
                     simbolos_activos.append(simbolo_limpio)
             
@@ -366,12 +344,10 @@ class GestorEjecucion:
     def cancelar_ordenes_pendientes(self, simbolo):
         """
         Limpieza: Borra todas las órdenes abiertas (TP, SL, Limit) de un par.
-        Se usa cuando detectamos que la posición se ha cerrado.
         """
         try:
             print(f"🧹 Limpiando órdenes huérfanas en {simbolo}...")
             self.exchange.cancel_all_orders(simbolo)
             return True
         except Exception as e:
-            # Es normal que falle si no había ninguna orden
             return False

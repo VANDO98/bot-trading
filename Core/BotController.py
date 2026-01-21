@@ -14,21 +14,20 @@ from Core.Utils.GestorPrediccion import GestorPrediccion
 from Core.Ejecucion.GestorEjecucionPaper import GestorEjecucionPaper
 
 # Estrategias
-#from Estrategias.Concretas.EstrategiaRSI import EstrategiaRSI
-#from Estrategias.Concretas.EstrategiaRSI_ADX import EstrategiaRSI_ADX
 from Estrategias.Selector import Selector 
 
 
 class BotController:
     """
-    ORQUESTADOR FINAL V2.9.3 (ESTABLE)
+    ORQUESTADOR FINAL V2.9.4 (MEJORADO)
+    - Trailing Stop Híbrido: Se actualiza al cierre de vela O cada 15 minutos.
     - Integración ML con Traductor de Datos.
     - Limpieza de Órdenes Fantasma (Ghost Buster).
     - Fail-Safe activado.
     """
     
     def __init__(self):
-        print(Fore.YELLOW + "🤖 Inicializando BotController v2.9.3 (FINAL)...")
+        print(Fore.YELLOW + "🤖 Inicializando BotController v2.9.4 (Trailing 15min)...")
         
         self.mostrar_dashboard = False #False para iniciar sin dashboard
 
@@ -37,7 +36,6 @@ class BotController:
         # =======================================================
         # 1. CARGA DE CONFIGURACIÓN (PRIMERO QUE TODO)
         # =======================================================
-        # [CRÍTICO] Esto actualiza Config.USAR_TESTNET antes de conectar nada
         full_config = Config.cargar_configuracion()
         self.config_global = full_config.get('configuracion_global', {})
         self.config_pares = {} 
@@ -45,7 +43,6 @@ class BotController:
         # =======================================================
         # 2. CONEXIÓN DE DATOS (GESTOR HÍBRIDO)
         # =======================================================
-        # Ahora GestorHibrido leerá el valor correcto (False/Mainnet)
         self.gestor_datos = GestorHibrido()
         
         # =======================================================
@@ -64,10 +61,12 @@ class BotController:
         self.gestor_prediccion = GestorPrediccion()
         
         self.estrategias_activas = {} 
-        # self.config_pares se llenará en el método cargar_estrategias
         
         self.ultima_validacion = time.time()
         self.intervalo_validacion = 300 
+
+        # [NUEVO] Diccionario para controlar el tiempo del trailing por par
+        self.ultimo_check_trailing = {}
 
         self.cargar_estrategias_desde_config()
 
@@ -84,17 +83,16 @@ class BotController:
             nombre_clase = cfg.get('estrategia')
             params = cfg.get('parametros_estrategia', {})
             
-            # --- CAMBIO CLAVE: USAR EL SELECTOR ---
             instancia = Selector.obtener_estrategia(nombre_clase, par, params)
             
             if instancia:
                 self.estrategias_activas[par] = instancia
+                # Inicializamos el timer del trailing en 0
+                self.ultimo_check_trailing[par] = 0 
                 print(f"   ✅ {par} -> Lista ({nombre_clase})")
             else:
                 print(f"   ⚠️ {par} -> Estrategia no encontrada, omitiendo.")
 
-
-################ NUEVO METODO AÑADIDO, EN REVISION
 
     def sincronizar_ordenes_seguridad(self):
         """
@@ -131,10 +129,8 @@ class BotController:
                 precio_entrada = datos_pos['entryPrice']
 
                 # 2. Buscar si ya existen órdenes SL y TP abiertas
-                # Usamos el exchange directamente para asegurar datos frescos
                 ordenes_abiertas = self.gestor_ejecucion.exchange.fetch_open_orders(par)
                 
-                # Identificamos si hay algún Stop Market (SL) y algún Take Profit o Limit (TP)
                 tiene_sl = any(o.get('type','').upper() in ['STOP_MARKET', 'STOP'] and o.get('reduceOnly') for o in ordenes_abiertas)
                 tiene_tp = any(o.get('type','').upper() in ['TAKE_PROFIT_MARKET', 'LIMIT'] and o.get('reduceOnly') for o in ordenes_abiertas)
 
@@ -159,7 +155,6 @@ class BotController:
         except Exception as e:
             print(f"{Fore.RED}❌ Error crítico en Sincronización de Seguridad: {e}")
     
-##########################
 
     def iniciar(self):
         if not self.estrategias_activas:
@@ -174,7 +169,6 @@ class BotController:
             activos_reales = []
 
         # --- PASO B: SINCRONIZACIÓN DE SEGURIDAD (LA CLAVE) ---
-        # Esto revisa Binance y pone SL/TP si reiniciaste el bot con trades abiertos
         self.sincronizar_ordenes_seguridad()
 
         for par, estrategia in self.estrategias_activas.items():
@@ -223,7 +217,6 @@ class BotController:
                         estrategia.posicion_abierta = estado_real
                         cambios += 1
                     
-                    # Limpieza incondicional si no hay posición
                     if not estado_real:
                         self.gestor_ejecucion.cancelar_ordenes_pendientes(par)
                 
@@ -238,24 +231,17 @@ class BotController:
     def procesar_vela(self, simbolo, kline_data):
         self.validar_sincronizacion_periodica()
 
-        # ============================================================
-        # 🧪 BLOQUE PAPER TRADING (SIMULACIÓN EN VIVO)
-        # ============================================================
-        # Como no hay órdenes reales en Binance, nosotros debemos 
-        # verificar manualmente si el precio tocó el SL o TP.
+        # Bloque Paper Trading
         if isinstance(self.gestor_ejecucion, GestorEjecucionPaper):
              self.gestor_ejecucion.chequear_cierres(simbolo)
-        # ============================================================
 
         estrategia = self.estrategias_activas.get(simbolo)
         if not estrategia: return
 
-        total_abiertas = sum(1 for e in self.estrategias_activas.values() if e.posicion_abierta)
-        limite_trades = self.config_global.get('max_trades_abiertos', 5)
-        # Hibernamos si estamos llenos y esta estrategia no tiene posición
-        en_hibernacion = (not estrategia.posicion_abierta) and (total_abiertas >= limite_trades)
-
+        # --- GESTIÓN DE POSICIONES ABIERTAS (TRAILING) ---
+        # Esto SÍ puede ejecutarse intra-vela (cada 15 min o al cierre) para proteger ganancias
         if estrategia.posicion_abierta:
+            # 1. Chequeo de seguridad (Cierre externo)
             if kline_data['x']: 
                 sigue_abierta = self.gestor_ejecucion.obtener_posicion_abierta(simbolo)
                 if not sigue_abierta:
@@ -264,22 +250,45 @@ class BotController:
                     self.gestor_ejecucion.cancelar_ordenes_pendientes(simbolo)
                     return 
 
+            # 2. Trailing Stop (Lógica Híbrida: Cierre OR Tiempo)
+            now = time.time()
+            last_check = self.ultimo_check_trailing.get(simbolo, 0)
+            GAP_15_MIN = 900 
+            
+            toca_por_tiempo = (now - last_check) > GAP_15_MIN
+            es_cierre_vela = kline_data['x']
+            
+            if es_cierre_vela or toca_por_tiempo:
+                self.ultimo_check_trailing[simbolo] = now
                 datos_pos = self.gestor_ejecucion.obtener_datos_posicion(simbolo)
                 if datos_pos:
                     self.aplicar_trailing_stop(simbolo, estrategia, datos_pos)
         
-        # Enviamos la vela a la estrategia (técnica)
-        senal = estrategia.recibir_vela(simbolo, kline_data, ejecutar_analisis=not en_hibernacion)
+        # --- GESTIÓN DE NUEVAS ENTRADAS (SOLO AL CIERRE) ---
+        # CORRECCIÓN: Todo el análisis técnico ahora vive DENTRO del cierre de vela.
+        
+        if kline_data['x']:  # <--- EL CANDADO MAESTRO
+            
+            # 1. Alimentar estrategia (Solo velas confirmadas)
+            # Nota: 'ejecutar_analisis' ahora es True solo si la vela cerró
+            total_abiertas = sum(1 for e in self.estrategias_activas.values() if e.posicion_abierta)
+            limite_trades = self.config_global.get('max_trades_abiertos', 5)
+            en_hibernacion = (not estrategia.posicion_abierta) and (total_abiertas >= limite_trades)
 
-        if en_hibernacion: return 
+            senal = estrategia.recibir_vela(simbolo, kline_data, ejecutar_analisis=not en_hibernacion)
 
-        if not estrategia.posicion_abierta:
-            if senal in ["COMPRA", "VENTA"]:
-                if total_abiertas < limite_trades:
-                    self.gestionar_ejecucion(simbolo, senal, estrategia)
-                else:
-                    print(f"{Fore.LIGHTBLACK_EX}⛔ Señal ignorada en {simbolo}: Límite alcanzado ({total_abiertas}/{limite_trades})")
+            if en_hibernacion: return 
 
+            # 2. Ejecutar Entrada
+            if not estrategia.posicion_abierta:
+                if senal in ["COMPRA", "VENTA"]:
+                    if total_abiertas < limite_trades:
+                        print(f"{Fore.CYAN}✨ Vela Cerrada en {simbolo}. Señal detectada: {senal}")
+                        self.gestionar_ejecucion(simbolo, senal, estrategia)
+                    else:
+                        print(f"{Fore.LIGHTBLACK_EX}⛔ Señal ignorada en {simbolo}: Límite alcanzado ({total_abiertas}/{limite_trades})")
+
+                        
     def aplicar_trailing_stop(self, simbolo, estrategia, datos_pos):
         entry_price = datos_pos['entryPrice']
         mark_price = datos_pos['markPrice']
@@ -354,7 +363,7 @@ class BotController:
         lado = "buy" if senal == "COMPRA" else "sell"
         
         # Datos del Config
-        cfg_par = self.config_pares[simbolo] # <--- Obtenemos la config completa
+        cfg_par = self.config_pares[simbolo] 
         config_cantidad = cfg_par.get('cantidad_operacion', 0)
         apalancamiento = cfg_par.get('apalancamiento', 1) 
         
@@ -373,8 +382,6 @@ class BotController:
                 print(Fore.YELLOW + f"⚠️ Data insuficiente en memoria ({len(estrategia.velas)} velas).")
                 return 
 
-            # --- CAMBIO CRÍTICO AQUÍ ---
-            # Pasamos 'cfg_par' que contiene timeframe, estrategia y parámetros
             ml_aprueba = self.gestor_prediccion.predecir_exito(
                 simbolo, 
                 estrategia.velas.copy(),
@@ -441,28 +448,23 @@ class BotController:
         print(Fore.YELLOW + "\n🛑 Deteniendo sistema...")
         self.gestor_datos.detener_todo()
 
-    # --- AGREGAR ESTE MÉTODO AL FINAL DE LA CLASE ---
     def actualizar_umbral_ml(self, nuevo_valor):
         """
         Actualiza el ml_threshold en memoria y en el archivo JSON
         para que persista y sea leído por GestorPrediccion.
         """
         try:
-            # 1. Definir ruta del archivo
             ruta_config = "config_trading.json"
             
-            # 2. Cargar config actual
             with open(ruta_config, 'r') as f:
                 data = json.load(f)
             
-            # 3. Modificar valor
             if 'sistema_riesgo' not in data:
                 data['sistema_riesgo'] = {}
             
             valor_anterior = data['sistema_riesgo'].get('ml_threshold', 0.0)
             data['sistema_riesgo']['ml_threshold'] = float(nuevo_valor)
             
-            # 4. Guardar cambios en disco
             with open(ruta_config, 'w') as f:
                 json.dump(data, f, indent=2)
                 
