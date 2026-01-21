@@ -231,17 +231,26 @@ class BotController:
     def procesar_vela(self, simbolo, kline_data):
         self.validar_sincronizacion_periodica()
 
-        # Bloque Paper Trading
+        # [NUEVO] 1. VALIDACIÓN DE SEGURIDAD DE INTERVALO
+        # Evita que una vela de 5m active un par configurado en 1h.
+        if simbolo in self.config_pares:
+            tf_configurado = self.config_pares[simbolo]['timeframe']
+            tf_entrante = kline_data['i'] # 'i' = intervalo de la vela entrante
+            
+            if tf_configurado != tf_entrante:
+                # Ignoramos silenciosamente la vela incorrecta
+                return 
+
+        # 2. Bloque Paper Trading (Simulación)
         if isinstance(self.gestor_ejecucion, GestorEjecucionPaper):
              self.gestor_ejecucion.chequear_cierres(simbolo)
 
         estrategia = self.estrategias_activas.get(simbolo)
         if not estrategia: return
 
-        # --- GESTIÓN DE POSICIONES ABIERTAS (TRAILING) ---
-        # Esto SÍ puede ejecutarse intra-vela (cada 15 min o al cierre) para proteger ganancias
+        # --- GESTIÓN DE POSICIONES ABIERTAS (TRAILING & SEGURIDAD) ---
         if estrategia.posicion_abierta:
-            # 1. Chequeo de seguridad (Cierre externo)
+            # A. Chequeo de seguridad (Solo al cierre para no saturar API)
             if kline_data['x']: 
                 sigue_abierta = self.gestor_ejecucion.obtener_posicion_abierta(simbolo)
                 if not sigue_abierta:
@@ -250,10 +259,10 @@ class BotController:
                     self.gestor_ejecucion.cancelar_ordenes_pendientes(simbolo)
                     return 
 
-            # 2. Trailing Stop (Lógica Híbrida: Cierre OR Tiempo)
+            # B. Trailing Stop Híbrido (Cierre de Vela OR Tiempo > 15 min)
             now = time.time()
             last_check = self.ultimo_check_trailing.get(simbolo, 0)
-            GAP_15_MIN = 900 
+            GAP_15_MIN = 900 # 15 minutos en segundos
             
             toca_por_tiempo = (now - last_check) > GAP_15_MIN
             es_cierre_vela = kline_data['x']
@@ -264,22 +273,21 @@ class BotController:
                 if datos_pos:
                     self.aplicar_trailing_stop(simbolo, estrategia, datos_pos)
         
-        # --- GESTIÓN DE NUEVAS ENTRADAS (SOLO AL CIERRE) ---
-        # CORRECCIÓN: Todo el análisis técnico ahora vive DENTRO del cierre de vela.
-        
-        if kline_data['x']:  # <--- EL CANDADO MAESTRO
+        # --- GESTIÓN DE NUEVAS ENTRADAS (EL CANDADO MAESTRO) ---
+        # Solo analizamos y operamos si la vela HA CERRADO
+        if kline_data['x']:  
             
-            # 1. Alimentar estrategia (Solo velas confirmadas)
-            # Nota: 'ejecutar_analisis' ahora es True solo si la vela cerró
+            # Cálculo de límites de hibernación
             total_abiertas = sum(1 for e in self.estrategias_activas.values() if e.posicion_abierta)
             limite_trades = self.config_global.get('max_trades_abiertos', 5)
             en_hibernacion = (not estrategia.posicion_abierta) and (total_abiertas >= limite_trades)
 
+            # Enviamos vela a la estrategia (Análisis Técnico)
             senal = estrategia.recibir_vela(simbolo, kline_data, ejecutar_analisis=not en_hibernacion)
 
             if en_hibernacion: return 
 
-            # 2. Ejecutar Entrada
+            # Ejecutar Entrada si no tenemos posición
             if not estrategia.posicion_abierta:
                 if senal in ["COMPRA", "VENTA"]:
                     if total_abiertas < limite_trades:
@@ -287,8 +295,7 @@ class BotController:
                         self.gestionar_ejecucion(simbolo, senal, estrategia)
                     else:
                         print(f"{Fore.LIGHTBLACK_EX}⛔ Señal ignorada en {simbolo}: Límite alcanzado ({total_abiertas}/{limite_trades})")
-
-                        
+                                           
     def aplicar_trailing_stop(self, simbolo, estrategia, datos_pos):
         entry_price = datos_pos['entryPrice']
         mark_price = datos_pos['markPrice']
