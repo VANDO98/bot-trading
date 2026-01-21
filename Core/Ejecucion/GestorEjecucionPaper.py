@@ -1,10 +1,10 @@
 import pandas as pd
 import os
-import time
 from datetime import datetime
 from colorama import Fore
+from Core.Ejecucion.GestorEjecucionBase import GestorEjecucionBase
 
-class GestorEjecucionPaper:
+class GestorEjecucionPaper(GestorEjecucionBase):
     """
     Simula ser el GestorEjecucion pero opera con dinero ficticio.
     Guarda todo en la carpeta 'Registros' para no estorbar.
@@ -47,6 +47,19 @@ class GestorEjecucionPaper:
 
     def obtener_todos_simbolos_con_posicion(self):
         return list(self.posiciones.keys())
+    
+    def obtener_balance_usdt(self):
+        return self.balance_actual
+
+    def calcular_cantidad_por_porcentaje(self, simbolo, porcentaje_str, precio_actual, apalancamiento):
+        """Simulación simplificada del cálculo de margen"""
+        balance = self.obtener_balance_usdt()
+        porcentaje = float(porcentaje_str.replace('%', '')) / 100
+        margen = balance * porcentaje
+        # En paper simple, asumimos que leverage multiplica el poder de compra
+        # cantidad = (Margen * Lev) / Precio
+        cantidad = (margen * apalancamiento) / precio_actual
+        return cantidad
 
     def obtener_posicion_abierta(self, simbolo):
         return simbolo in self.posiciones
@@ -145,6 +158,53 @@ class GestorEjecucionPaper:
         if cerrar_con_razon:
             self._cerrar_posicion(simbolo, precio_actual, cerrar_con_razon)
             return True
+        return False
+
+    def chequear_cierres_con_vela(self, simbolo, kline):
+        """
+        Verificación Precisa (Wick Detection):
+        Usa High y Low de la vela para ver si tocó precios aunque cerró lejos.
+        """
+        if simbolo not in self.posiciones: return False
+
+        pos = self.posiciones[simbolo]
+        sl = pos['sl_price']
+        tp = pos['tp_price']
+        lado = pos['side']
+        
+        # Datos de la vela
+        high = float(kline['h'])
+        low = float(kline['l'])
+        close = float(kline['c']) # Precio cierre por defecto si hay cruce
+        
+        cerrar_con_razon = None
+        precio_ejecucion = close
+
+        # Lógica de prioridad: Stop Loss suele ejecutarse primero en simulaciones conservadoras
+        # si ambos ocurren en la misma vela (peor caso).
+        
+        if lado == 'buy':
+            # LONG: SL está abajo (checamos LOW), TP está arriba (checamos HIGH)
+            if low <= sl: 
+                cerrar_con_razon = "STOP LOSS (Wick)"
+                precio_ejecucion = sl # Asumimos slippage 0 o ejecución en precio trigger
+            elif high >= tp and tp > 0: 
+                cerrar_con_razon = "TAKE PROFIT (Wick)"
+                precio_ejecucion = tp
+        
+        else:
+            # SHORT: SL está arriba (checamos HIGH), TP está abajo (checamos LOW)
+            if high >= sl and sl > 0: 
+                cerrar_con_razon = "STOP LOSS (Wick)"
+                precio_ejecucion = sl
+            elif low <= tp and tp > 0: 
+                cerrar_con_razon = "TAKE PROFIT (Wick)"
+                precio_ejecucion = tp
+
+        if cerrar_con_razon:
+            self._cerrar_posicion(simbolo, precio_ejecucion, cerrar_con_razon)
+            return True
+            
         return False
 
     def _cerrar_posicion(self, simbolo, precio_salida, razon):

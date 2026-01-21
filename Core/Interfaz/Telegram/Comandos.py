@@ -41,36 +41,68 @@ class GestorComandos:
             except Exception as e:
                 enviar_texto_func(chat_id, f"❌ Error balance: {e}")
 
-        # 3. GRAFICA (Top 5 Binance)
+        # 3. GRAFICA (Dashboard Completo)
         elif cmd == "/grafica":
-            horas = 24
-            if args and args[0].isdigit():
-                horas = int(args[0])
+            try:
+                horas = int(args[0]) if args and args[0].isdigit() else 24
+                enviar_texto_func(chat_id, f"📡 Generando dashboard ({horas}h)...")
+                
+                # Importar el analizador
+                from Core.Utils.AnalizadorTrades import AnalizadorTrades
+                
+                # Crear analizador
+                analizador = AnalizadorTrades(exchange_instance=self.bot.gestor_ejecucion.exchange)
+                
+                # Generar reporte completo (reutilizamos la lógica ya que genera el dashboard)
+                resultado = analizador.generar_reporte(horas)
+                
+                if resultado and os.path.exists(resultado['dashboard']):
+                    enviar_foto_func(chat_id, resultado['dashboard'])
+                    enviar_texto_func(chat_id, "📊 Aquí tienes el dashboard de rendimiento actualizado.")
+                else:
+                    enviar_texto_func(chat_id, "📉 No hay trades o datos suficientes para generar la gráfica.")
             
-            enviar_texto_func(chat_id, f"📡 Consultando Binance y generando Top 5 ({horas}h)...")
-            ruta, texto = self.auditor.generar_grafica_top5(horas)
-            
-            if ruta and os.path.exists(ruta):
-                enviar_foto_func(chat_id, ruta)
-                enviar_texto_func(chat_id, texto)
-            else:
-                enviar_texto_func(chat_id, texto)
+            except Exception as e:
+                enviar_texto_func(chat_id, f"❌ Error generando gráfica: {e}")
 
-        # 4. REPORTE (CSV Auditoría)
+        # 4. REPORTE (Análisis Completo con Dashboard + Excel)
         elif cmd == "/reporte":
             try:
                 horas = int(args[0]) if args and args[0].isdigit() else 24
-                enviar_texto_func(chat_id, f"🧮 Calculando métricas y generando CSV ({horas}h)...")
+                enviar_texto_func(chat_id, f"🧮 Generando análisis completo ({horas}h)...")
                 
-                ruta_csv, mensaje_status = self.auditor.generar_csv_resumen(horas)
+                # Importar el analizador
+                from Core.Utils.AnalizadorTrades import AnalizadorTrades
                 
-                if ruta_csv and os.path.exists(ruta_csv):
-                    if enviar_documento_func:
-                        enviar_documento_func(chat_id, ruta_csv)
-                    else:
-                        enviar_texto_func(chat_id, "❌ Error: Función de documento no disponible.")
+                # Crear analizador reutilizando el exchange del bot
+                analizador = AnalizadorTrades(exchange_instance=self.bot.gestor_ejecucion.exchange)
+                
+                # Generar reporte
+                resultado = analizador.generar_reporte(horas)
+                
+                if resultado:
+                    # Enviar resumen de texto
+                    resumen = resultado['resumen']
+                    msg = f"📊 **Análisis Completo ({horas}h)**\\n\\n"
+                    msg += f"💰 PnL Total: **${resumen['pnl_total']:.2f}** USDT\\n"
+                    msg += f"🎯 Win Rate Promedio: **{resumen['win_rate_promedio']:.1f}%**\\n"
+                    msg += f"📈 Pares Analizados: **{resumen['num_pares']}**\\n"
+                    msg += f"🔢 Total Trades: **{resumen['num_trades']}**"
+                    enviar_texto_func(chat_id, msg)
+                    
+                    # Enviar dashboard
+                    if os.path.exists(resultado['dashboard']):
+                        enviar_foto_func(chat_id, resultado['dashboard'])
+                    
+                    # Enviar Excel
+                    if os.path.exists(resultado['excel']):
+                        if enviar_documento_func:
+                            enviar_documento_func(chat_id, resultado['excel'])
+                        else:
+                            enviar_texto_func(chat_id, f"📁 Excel generado en: {resultado['excel']}")
                 else:
-                    enviar_texto_func(chat_id, mensaje_status)
+                    enviar_texto_func(chat_id, "📉 No hay trades en el periodo especificado")
+                    
             except Exception as e:
                 enviar_texto_func(chat_id, f"❌ Error reporte: {e}")
 

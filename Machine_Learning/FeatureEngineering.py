@@ -3,6 +3,11 @@ import pandas_ta as ta
 import numpy as np
 import glob
 import os
+import sys
+
+# Importar Core
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from Core.Utils.FeatureEngine import FeatureEngine as CoreEngine
 
 class FeatureEngineering:
     """
@@ -20,65 +25,16 @@ class FeatureEngineering:
         """
         MÉTODO PÚBLICO PARA EL BOT EN VIVO.
         Recibe velas crudas -> Devuelve velas con indicadores.
+        DELEGADO A CORE.
         """
-        return self._calcular_indicadores(df)
+        return CoreEngine.generar_indicadores(df)
 
     def _calcular_indicadores(self, df):
-        """Calcula los 10 Jinetes del Apocalipsis (Features)"""
-        # Evitar warnings de copia
-        df = df.copy()
+        """
+        Wrapper interno para mantener compatibilidad si algo lo llama.
+        """
+        return CoreEngine.generar_indicadores(df)
 
-        # 1. Indicadores de Momento
-        df['RSI'] = ta.rsi(df['close'], length=14)
-        df['RSI'] = df['RSI'].fillna(50) 
-        df['RSI_Slope'] = df['RSI'].diff(1) # Velocidad del cambio
-        
-        stoch = ta.stoch(df['high'], df['low'], df['close'])
-        # Pandas TA devuelve k, d. Buscamos la columna K dinámicamente
-        try:
-            col_k = [c for c in stoch.columns if c.startswith('STOCHk')][0]
-            df['Stoch_K'] = stoch[col_k]
-        except:
-            df['Stoch_K'] = 50 # Fallback seguro
-
-        # 2. Tendencia
-        df['EMA_200'] = ta.ema(df['close'], length=200)
-        df['Dist_EMA200'] = (df['close'] - df['EMA_200']) / df['close'] 
-        
-        adx = ta.adx(df['high'], df['low'], df['close'], length=14)
-        try:
-            col_adx = [c for c in adx.columns if c.startswith('ADX') and not c.startswith('ADX_') is False][0]
-            df['ADX'] = adx[col_adx]
-        except:
-            df['ADX'] = 0
-
-        # 3. Volatilidad
-        df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
-        df['ATR_Pct'] = df['ATR'] / df['close'] 
-        
-        # Bollinger Bands
-        bb = ta.bbands(df['close'], length=20, std=2)
-        if bb is not None:
-            col_upper = [c for c in bb.columns if c.startswith('BBU')][0]
-            col_lower = [c for c in bb.columns if c.startswith('BBL')][0]
-            col_mid   = [c for c in bb.columns if c.startswith('BBM')][0]
-            df['BB_Width'] = (bb[col_upper] - bb[col_lower]) / bb[col_mid]
-        else:
-            df['BB_Width'] = 0
-
-        # 4. Volumen y Velas
-        df['Vol_SMA_20'] = ta.sma(df['volume'], length=20)
-        df['RVOL'] = df['volume'] / df['Vol_SMA_20'] 
-        
-        cuerpo = abs(df['close'] - df['open'])
-        rango_total = df['high'] - df['low']
-        df['Cuerpo_Pct'] = np.where(rango_total == 0, 0, cuerpo / rango_total)
-
-        # Limpieza final para inferencia (Relleno de NaNs incipientes)
-        df.ffill(inplace=True)  # <--- CAMBIO AQUÍ (Más moderno y sin error)
-        df.fillna(0, inplace=True)
-
-        return df
 
     def generar_dataset_entrenamiento(self, carpeta_input, carpeta_output):
         """Genera el CSV masivo para entrenar el modelo (Solo uso offline)."""

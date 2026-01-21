@@ -29,6 +29,8 @@ config.ini
 *.csv
 historial_trading.csv
 Core/Utils/Logs/
+*.xlsx
+*.png
 
 # --- Machine Learning (Datasets) ---
 Machine_Learning/Data_Entrenamiento/

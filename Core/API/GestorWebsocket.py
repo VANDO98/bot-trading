@@ -6,9 +6,9 @@ from Core.Utils.Config import Config
 
 logging.getLogger("unicorn_binance_websocket_api").setLevel(logging.ERROR)
 
-class GestorHibrido:
+class GestorWebsocket:
     """
-    Gestor Híbrido v2.6 (FIXED):
+    Gestor WebSocket v2.6 (Renamed):
     - Soluciona la contaminación de Timeframes (5m vs 1h).
     - Agrupa suscripciones WebSocket por intervalo.
     """

@@ -35,9 +35,6 @@ class Config:
         """
         data = Config._cargar_json()
         
-        # --- CORRECCIÓN CRÍTICA ---
-        # Actualizamos la variable estática INMEDIATAMENTE al leer el archivo.
-        # Así, cualquier módulo que consulte Config.USAR_TESTNET después verá el valor real.
         if data:
             Config.USAR_TESTNET = data.get("usar_testnet", True)
             
@@ -48,11 +45,8 @@ class Config:
         """
         Devuelve un diccionario filtrado solo con los pares activos.
         """
-        data = Config._cargar_json()
-        
-        # Actualizamos la variable global (para que GestorHibrido sepa a dónde conectar)
-        # Nota: Ahora busca 'usar_testnet' en la raíz del JSON
-        Config.USAR_TESTNET = data.get("usar_testnet", True)
+        # Reutilizamos cargar_configuracion para garantizar que USAR_TESTNET se actualice
+        data = Config.cargar_configuracion()
         
         pares_raw = data.get("pares", {})
         pares_activos = {}

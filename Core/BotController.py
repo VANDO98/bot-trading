@@ -5,7 +5,7 @@ import json
 
 # Módulos del sistema
 from Core.Utils.Config import Config
-from Core.API.GestorHibrido import GestorHibrido
+from Core.API.GestorWebsocket import GestorWebsocket
 from Core.Ejecucion.GestorEjecucion import GestorEjecucion 
 from Core.Utils.TradeLogger import TradeLogger 
 from Core.Utils.GestorPrediccion import GestorPrediccion
@@ -41,9 +41,9 @@ class BotController:
         self.config_pares = {} 
 
         # =======================================================
-        # 2. CONEXIÓN DE DATOS (GESTOR HÍBRIDO)
+        # 2. CONEXIÓN DE DATOS (GESTOR WEBSOCKET)
         # =======================================================
-        self.gestor_datos = GestorHibrido()
+        self.gestor_datos = GestorWebsocket()
         
         # =======================================================
         # 3. SELECCIÓN DE MOTOR DE EJECUCIÓN (REAL vs PAPER)
@@ -137,6 +137,11 @@ class BotController:
                 # 3. Reparar si falta algo
                 if not tiene_sl or not tiene_tp:
                     print(f"{Fore.MAGENTA}⚠️ Faltan protecciones en {par}. Reparando...")
+                    
+                    # --- FIX CRÍTICO: Limpiar para no duplicar ---
+                    # Si falta UNO, borramos TODO lo pendiente y lo ponemos bien desde cero.
+                    self.gestor_ejecucion.cancelar_ordenes_pendientes(par)
+
                     self.gestor_ejecucion.colocar_ordenes_salida(
                         simbolo=par,
                         lado_entrada=lado_entrada,
@@ -223,6 +228,12 @@ class BotController:
                 if cambios == 0:
                     print(Fore.GREEN + "✅ Sincronización OK. Área limpia.")
                     
+                # --- NUEVA CAPA DE AUTO-HEALING ---
+                # Cada vez que validamos, si hay posiciones abiertas, nos aseguramos
+                # de que sus SL/TP sigan vivos (por si los borramos manualmente).
+                if len(simbolos_en_exchange) > 0:
+                    self.sincronizar_ordenes_seguridad()
+                    
             except Exception as e:
                 print(Fore.RED + f"❌ Error en validación periódica: {e}")
             
@@ -242,8 +253,10 @@ class BotController:
                 return 
 
         # 2. Bloque Paper Trading (Simulación)
+        # 2. Bloque Paper Trading (Simulación)
         if isinstance(self.gestor_ejecucion, GestorEjecucionPaper):
-             self.gestor_ejecucion.chequear_cierres(simbolo)
+             # CHEQUEO AVANZADO: Usamos la vela completa (Wicks)
+             self.gestor_ejecucion.chequear_cierres_con_vela(simbolo, kline_data)
 
         estrategia = self.estrategias_activas.get(simbolo)
         if not estrategia: return

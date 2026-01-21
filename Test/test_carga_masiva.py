@@ -5,7 +5,7 @@ import datetime
 from colorama import init, Fore, Style
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from Core.API.GestorHibrido import GestorHibrido
+from Core.API.GestorWebsocket import GestorWebsocket
 
 init(autoreset=True)
 
@@ -52,7 +52,7 @@ def test_dashboard_completo():
     }
 
     print(Fore.YELLOW + "--- INICIANDO MONITOR HÍBRIDO (TICKER + VELAS) ---")
-    gestor = GestorHibrido()
+    gestor = GestorWebsocket()
     
     # Pasamos nuestro callback real
     gestor.iniciar_flujo_hibrido(pares_prueba, callback_vela)

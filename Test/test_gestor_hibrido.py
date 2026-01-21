@@ -5,7 +5,7 @@ import time
 # --- Truco para importar módulos desde la carpeta raíz ---
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from Core.API.GestorHibrido import GestorHibrido
+from Core.API.GestorWebsocket import GestorWebsocket
 from Core.Utils.Config import Config
 
 def callback_prueba(symbol, kline_data):
@@ -17,7 +17,7 @@ def test_flujo_datos():
     print("--- INICIANDO TEST DE GESTOR HÍBRIDO (UNICORN) ---")
     
     # 1. Instanciar
-    gestor = GestorHibrido()
+    gestor = GestorWebsocket()
     
     # 2. Preparar configuración falsa para el test
     # Simulamos que queremos leer BTC y ETH

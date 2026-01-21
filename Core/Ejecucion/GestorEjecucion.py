@@ -2,11 +2,12 @@ import os
 import ccxt
 from dotenv import load_dotenv
 from Core.Utils.Config import Config
+from Core.Ejecucion.GestorEjecucionBase import GestorEjecucionBase
 from colorama import Fore
 
 load_dotenv()
 
-class GestorEjecucion:
+class GestorEjecucion(GestorEjecucionBase):
     """
     ENCARGADO DE LAS ÓRDENES (Versión CCXT + Gestión de Riesgo).
     """

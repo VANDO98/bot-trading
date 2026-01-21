@@ -7,6 +7,7 @@ from colorama import Fore
 # Imports del sistema
 from Core.Utils.Config import Config
 from Core.Utils.ML_Logger import MLLogger
+from Core.Utils.FeatureEngine import FeatureEngine
 
 class GestorPrediccion:
     def __init__(self):
@@ -42,35 +43,33 @@ class GestorPrediccion:
 
     def _generar_features_dinamicas(self, df, estrategia_nombre, params):
         """
-        REPLICA EXACTA de la lógica de TrainModel.py
+        Delega el cálculo a FeatureEngine para mantener consistencia con el entrenamiento.
+        Añade features específicas de estrategia si es necesario.
         """
-        df = df.copy()
+        # 1. Indicadores Base (Centralizados)
+        df = FeatureEngine.generar_indicadores(df)
         
-        # 1. Indicadores Base
-        df['RSI'] = ta.rsi(df['close'], length=14)
-        try:
-            adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
-            col_adx = next((c for c in adx_df.columns if c.startswith('ADX')), None)
-            df['ADX'] = adx_df[col_adx] if col_adx else 0
-        except:
-            df['ADX'] = 0
-
-        # 2. Indicadores Específicos según la estrategia ganadora
+        # 2. Indicadores Específicos según la estrategia (Si se mantienen lógicas custom)
+        # Nota: Idealmente mover esto también a FeatureEngine o mantenerlo mínimo.
         if estrategia_nombre == "EstrategiaTrend":
             df['EMA_F'] = ta.ema(df['close'], length=params.get('ema_fast', 9))
             df['EMA_S'] = ta.ema(df['close'], length=params.get('ema_slow', 21))
+            # Recalcular distancias si es necesario, OJO con sobreescribir lógica core
+            # df['distancia_emas'] = ... 
+            # (El código original calculaba distancia_emas aquí, lo dejamos por compatibilidad)
             df['distancia_emas'] = (df['EMA_F'] - df['EMA_S']) / df['close']
             
         elif estrategia_nombre == "EstrategiaBB":
-            bb = ta.bbands(df['close'], length=params.get('bb_length', 20), std=params.get('bb_std', 2.0))
-            if bb is not None:
-                col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
-                col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
-                if col_u and col_l:
-                    df['dist_upper'] = df['close'] - bb[col_u]
-                    df['dist_lower'] = df['close'] - bb[col_l]
+            # Bollinger ya viene de FeatureEngine, pero si se usan params custom:
+            if 'bb_length' in params:
+                 bb = ta.bbands(df['close'], length=params['bb_length'], std=params.get('bb_std', 2.0))
+                 if bb is not None:
+                    col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+                    col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
+                    if col_u and col_l:
+                        df['dist_upper'] = df['close'] - bb[col_u]
+                        df['dist_lower'] = df['close'] - bb[col_l]
         
-        # Rellenar ceros para no romper predicción
         df.fillna(0, inplace=True)
         return df
 

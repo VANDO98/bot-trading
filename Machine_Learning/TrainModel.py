@@ -8,6 +8,11 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 from colorama import Fore, init
+import sys
+
+# Permitir importar Core desde el directorio padre
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from Core.Utils.FeatureEngine import FeatureEngine
 
 init(autoreset=True)
 
@@ -26,17 +31,12 @@ def cargar_config():
         return json.load(f)
 
 def calcular_indicadores_segun_estrategia(df, estrategia, params):
-    df = df.copy()
-    
-    # 1. Indicadores Base
-    df['RSI'] = ta.rsi(df['close'], length=14)
-    try:
-        adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
-        col_adx = next((c for c in adx_df.columns if c.startswith('ADX')), None)
-        df['ADX'] = adx_df[col_adx] if col_adx else 0
-    except:
-        df['ADX'] = 0
-
+    """
+    Usa el FeatureEngine centralizado y añade lógica específica de estrategia.
+    """
+    # 1. Indicadores Base (Centralizados)
+    df = FeatureEngine.generar_indicadores(df)
+ 
     # 2. Indicadores Específicos
     if estrategia == "EstrategiaTrend":
         df['EMA_F'] = ta.ema(df['close'], length=params.get('ema_fast', 9))
@@ -45,16 +45,19 @@ def calcular_indicadores_segun_estrategia(df, estrategia, params):
         df['distancia_emas'] = (df['EMA_F'] - df['EMA_S']) / df['close']
         
     elif estrategia == "EstrategiaBB":
-        bb = ta.bbands(df['close'], length=params.get('bb_length', 20), std=params.get('bb_std', 2.0))
-        if bb is not None:
-            col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
-            col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
-            if col_u and col_l:
-                df['dist_upper'] = df['close'] - bb[col_u]
-                df['dist_lower'] = df['close'] - bb[col_l]
+        # Bollinger ya viene de FeatureEngine, pero si se usan params custom:
+        if 'bb_length' in params:
+            bb = ta.bbands(df['close'], length=params.get('bb_length', 20), std=params.get('bb_std', 2.0))
+            if bb is not None:
+                col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+                col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
+                if col_u and col_l:
+                    df['dist_upper'] = df['close'] - bb[col_u]
+                    df['dist_lower'] = df['close'] - bb[col_l]
     
     df.dropna(inplace=True)
     return df
+
 
 def etiquetar_datos(df, ventana_futura=3, objetivo_minimo=0.008):
     # Retorno a futuro
