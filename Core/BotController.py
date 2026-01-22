@@ -269,6 +269,7 @@ class BotController:
                 if not sigue_abierta:
                     print(f"{Fore.YELLOW}🔓 Posición cerrada externamente en {simbolo}.")
                     estrategia.posicion_abierta = False
+                    estrategia.tp_parcial_realizado = False # Reset flag
                     self.gestor_ejecucion.cancelar_ordenes_pendientes(simbolo)
                     return 
 
@@ -321,6 +322,41 @@ class BotController:
             delta_precio = (entry_price - mark_price) / entry_price
 
         roe_real = delta_precio * lev 
+        
+        # --- [NUEVO] TOMA DE GANANCIAS PARCIAL ---
+        try:
+            full_conf = Config.cargar_configuracion()
+            riesgo = full_conf.get('sistema_riesgo', {})
+            tp_parcial_roe = riesgo.get('tp_parcial_roe', 0.20) # 20% ROE
+            pct_venta = riesgo.get('porcentaje_venta_parcial', 0.50) # 50% Venta
+
+            # Solo ejecutamos si NO se ha hecho antes y alcanzamos el ROE
+            if not estrategia.tp_parcial_realizado and roe_real >= tp_parcial_roe:
+                print(f"{Fore.MAGENTA}✨ ROE {roe_real*100:.1f}% >= {tp_parcial_roe*100}% -> Ejecutando TP Parcial...")
+                
+                # Calcular cantidad a vender
+                cantidad_total = datos_pos['amount']
+                cantidad_venta = cantidad_total * pct_venta
+                
+                # Ajuste de precisión (Importante para evitar errores de API)
+                cantidad_venta = self.gestor_ejecucion.exchange.amount_to_precision(simbolo, cantidad_venta)
+                cantidad_venta = float(cantidad_venta)
+
+                if cantidad_venta > 0:
+                    exito = self.gestor_ejecucion.ejecutar_cierre_parcial(
+                        simbolo, cantidad_venta, lado
+                    )
+                    if exito:
+                        estrategia.tp_parcial_realizado = True
+                        print(f"{Fore.GREEN}✅ TP Parcial Completado. Flag activada.")
+                        # Recargamos datos de posición para el Trailing posterior
+                        datos_pos = self.gestor_ejecucion.obtener_datos_posicion(simbolo)
+                        if not datos_pos: return 
+        except Exception as e:
+            print(Fore.RED + f"⚠️ Error en lógica TP Parcial: {e}")
+
+        # --- FIN LÓGICA PARCIAL ---
+
         orden_sl = self.gestor_ejecucion.obtener_orden_stop_loss(simbolo)
         if not orden_sl: return
         sl_actual = float(orden_sl['stopPrice'])
@@ -332,7 +368,7 @@ class BotController:
             atr = estrategia.calcular_atr(periodo=14) 
             if atr > 0:
                 distancia_atr = 2 * atr 
-                margen_fee = entry_price * 0.0015 
+                margen_fee = entry_price * 0.0020 # 0.20% de seguridad
                 if lado == 'buy':
                     target_atr = mark_price - distancia_atr
                     target_be = entry_price + margen_fee
@@ -348,18 +384,28 @@ class BotController:
                         nuevo_sl = target_final
                         motivo = f"Trailing Dinámico (ROE {roe_real*100:.1f}%)"
         
-        elif roe_real >= 0.05:
-            margen_fee = entry_price * 0.0015 
-            if lado == 'buy':
-                target = entry_price + margen_fee
-                if target > sl_actual: 
-                    nuevo_sl = target
-                    motivo = f"Breakeven (ROE {roe_real*100:.1f}%)"
-            else:
-                target = entry_price - margen_fee
-                if target < sl_actual: 
-                    nuevo_sl = target
-                    motivo = f"Breakeven (ROE {roe_real*100:.1f}%)"
+        else:
+            # Cargar la configuración de riesgo actualizada
+            full_conf = Config.cargar_configuracion()
+            riesgo = full_conf.get('sistema_riesgo', {})
+            be_trigger = riesgo.get('activacion_break_even_roe', 0.05)
+            
+            if roe_real >= be_trigger:
+                # ESTRATEGIA: RISK SHIELD (Breathing Room)
+                # En lugar de BE apretado, reducimos el riesgo a solo 0.5% de distancia
+                # permitiendo que el precio "respire" sin cerrarnos prematuramente.
+                margen_respiro = entry_price * 0.0050 # 0.5% de distancia
+                
+                if lado == 'buy':
+                    target = entry_price - margen_respiro # SL ligeramente debajo de entrada
+                    if target > sl_actual: 
+                        nuevo_sl = target
+                        motivo = f"Risk Shield (ROE {roe_real*100:.1f}%)"
+                else:
+                    target = entry_price + margen_respiro # SL ligeramente encima de entrada
+                    if target < sl_actual: 
+                        nuevo_sl = target
+                        motivo = f"Risk Shield (ROE {roe_real*100:.1f}%)"
 
         if nuevo_sl:
             distancia_seguridad = mark_price * 0.002 

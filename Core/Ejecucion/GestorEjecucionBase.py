@@ -61,6 +61,13 @@ class GestorEjecucionBase(ABC):
         # Devuelve True/False
         pass
 
+    @abstractmethod
+    def ejecutar_cierre_parcial(self, simbolo, cantidad_reduccion, lado_actual, tipo_orden='market'):
+        """
+        [NUEVO] Cierra parcialmente una posición y reajusta Stop Loss.
+        """
+        pass
+
     def chequear_cierres_con_vela(self, simbolo, kline):
         """
         [Opcional] Para Paper Trading avanzado.

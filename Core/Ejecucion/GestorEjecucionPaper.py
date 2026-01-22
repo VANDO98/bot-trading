@@ -131,6 +131,46 @@ class GestorEjecucionPaper(GestorEjecucionBase):
             return {'stopPrice': self.posiciones[simbolo]['sl_price'], 'id': 'paper_sl'}
         return None
 
+    def ejecutar_cierre_parcial(self, simbolo, cantidad_reduccion, lado_actual, tipo_orden='market'):
+        if simbolo not in self.posiciones: 
+            return False
+
+        pos = self.posiciones[simbolo]
+        precio_actual = self.gestor_datos.obtener_precio(simbolo)
+        entry = pos['entryPrice']
+        
+        # Calculamos PNL proporcional a lo que vendemos
+        if lado_actual == 'buy':
+            pnl_usdt = (precio_actual - entry) * cantidad_reduccion
+        else:
+            pnl_usdt = (entry - precio_actual) * cantidad_reduccion
+        
+        # Actualizamos balance y reducimos posición
+        self.balance_actual += pnl_usdt
+        pos['cantidad'] -= cantidad_reduccion
+        
+        # Log en CSV
+        try:
+            nuevo_registro = {
+                "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "Simbolo": simbolo,
+                "Tipo": f"PARTIAL_{lado_actual.upper()}",
+                "Precio_Entrada": entry,
+                "Cantidad": cantidad_reduccion,
+                "Precio_Salida": precio_actual,
+                "Resultado": "PARTIAL TAKE PROFIT",
+                "PNL_USDT": round(pnl_usdt, 2),
+                "PNL_PCT": round(((precio_actual - entry)/entry)*100, 2) if lado_actual == 'buy' else round(((entry - precio_actual)/entry)*100, 2),
+                "Balance_Acum": round(self.balance_actual, 2)
+            }
+            df = pd.DataFrame([nuevo_registro])
+            df.to_csv(self.archivo_csv, mode='a', header=False, index=False)
+        except Exception as e:
+            print(Fore.RED + f"⚠️ Error escribiendo CSV parcial: {e}")
+
+        print(Fore.GREEN + f"💰 TP PARCIAL PAPERT: {simbolo} | PNL: ${pnl_usdt:.2f} | Restan: {pos['cantidad']:.4f}")
+        return True
+
     # --- MOTOR DE CIERRE SIMULADO ---
     
     def chequear_cierres(self, simbolo):

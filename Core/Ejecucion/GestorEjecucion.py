@@ -249,6 +249,26 @@ class GestorEjecucion(GestorEjecucionBase):
             print(Fore.RED + f"⚠️ Error buscando Stop Loss de {simbolo}: {e}")
             return None
 
+    def obtener_orden_take_profit(self, simbolo):
+        """
+        [NUEVO] Busca la orden TP activa (TAKE_PROFIT_MARKET o LIMIT con reduceOnly).
+        """
+        try:
+            pos = self.obtener_datos_posicion(simbolo)
+            if not pos: return None
+            
+            ordenes = self.exchange.fetch_open_orders(simbolo)
+            for o in ordenes:
+                tipo = o.get('type', '').upper()
+                reduce = o.get('reduceOnly', False)
+                # Buscamos Take Profit Market o Limit reductora
+                if (tipo == 'TAKE_PROFIT_MARKET' or tipo == 'TAKE_PROFIT') and reduce:
+                    return o
+            return None
+        except Exception as e:
+            print(Fore.RED + f"⚠️ Error buscando Take Profit de {simbolo}: {e}")
+            return None
+
     def modificar_stop_loss(self, simbolo, orden_id, nuevo_precio_stop, lado_posicion):
         """
         MODIFICACIÓN CON FILTRO DE IDENTIDAD Y ROLLBACK DE SEGURIDAD.
@@ -351,4 +371,75 @@ class GestorEjecucion(GestorEjecucionBase):
             self.exchange.cancel_all_orders(simbolo)
             return True
         except Exception as e:
+            return False
+
+    def ejecutar_cierre_parcial(self, simbolo, cantidad_reduccion, lado_actual, tipo_orden='market'):
+        """
+        EJECUCIÓN REAL DE TP PARCIAL
+        1. Cancela Stop Loss actual (para evitar conflictos de reducción).
+        2. Lanza orden de mercado contraria para reducir tamaño.
+        3. Re-crea Stop Loss para el remanente.
+        """
+        print(Fore.YELLOW + f"🔪 Iniciando Cierre Parcial en {simbolo} ({cantidad_reduccion})...")
+        
+        try:
+            # A. Obtener datos antes de romper nada (Safety First)
+            sl_orden = self.obtener_orden_stop_loss(simbolo)
+            tp_orden = self.obtener_orden_take_profit(simbolo) # [NUEVO]
+            
+            precio_sl_old = float(sl_orden['stopPrice']) if sl_orden else None
+            precio_tp_old = float(tp_orden['stopPrice']) if tp_orden else None # [NUEVO]
+            
+            # B. Cancelar Stop Loss (Vital para evitar error "ReduceOnly")
+            self.cancelar_ordenes_pendientes(simbolo)
+
+            # C. Ejecutar Venta Parcial
+            lado_cierre = 'sell' if lado_actual == 'buy' else 'buy'
+            
+            orden_cierre = self.exchange.create_order(
+                symbol=simbolo,
+                type=tipo_orden,
+                side=lado_cierre,
+                amount=cantidad_reduccion,
+                params={'reduceOnly': True} # Aseguramos que solo reduzca
+            )
+            
+            precio_real = orden_cierre.get('average', 0)
+            print(Fore.GREEN + f"✅ Parcial Ejecutado @ {precio_real}")
+
+            # D. Restaurar Stop Loss y Take Profit para el resto
+            # 1. Ver cuanto queda
+            pos_actual = self.obtener_datos_posicion(simbolo)
+            if pos_actual and pos_actual['amount'] > 0:
+                cantidad_restante = pos_actual['amount']
+                
+                # Restaurar SL
+                if precio_sl_old:
+                    print(Fore.CYAN + f"🛡️ Restaurando SL (${precio_sl_old}) para {cantidad_restante} u...")
+                    self.exchange.create_order(
+                        symbol=simbolo,
+                        type='STOP_MARKET',
+                        side=lado_cierre,
+                        amount=cantidad_restante,
+                        params={'stopPrice': self.exchange.price_to_precision(simbolo, precio_sl_old), 'reduceOnly': True}
+                    )
+                
+                # Restaurar TP [NUEVO]
+                if precio_tp_old:
+                    print(Fore.CYAN + f"🎯 Restaurando TP (${precio_tp_old}) para {cantidad_restante} u...")
+                    self.exchange.create_order(
+                        symbol=simbolo,
+                        type='TAKE_PROFIT_MARKET',
+                        side=lado_cierre,
+                        amount=cantidad_restante,
+                        params={'stopPrice': self.exchange.price_to_precision(simbolo, precio_tp_old), 'reduceOnly': True}
+                    )
+                    
+                print(Fore.GREEN + "✅ Protecciones (SL/TP) restauradas.")
+            
+            return True
+
+        except Exception as e:
+            print(Fore.RED + f"❌ CRITICAL ERROR en Cierre Parcial: {e}")
+            # En caso de pánico, intentar al menos restaurar SL
             return False
