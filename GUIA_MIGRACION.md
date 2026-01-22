@@ -1,8 +1,6 @@
 # Guía de Migración a Mainnet (Dinero Real)
 
-He realizado una revisión completa del código y tu bot está **técnicamente listo** para operar en la red principal (Mainnet). La lógica de cambio (`if Config.USAR_TESTNET`) está correctamente aislada y no hay bloqueos hardcodeados.
-
-Sigue estos pasos estrictos para realizar la migración de forma segura.
+Sigue estos pasos estrictos para realizar una migración de forma segura.
 
 ## 📋 Lista de Verificación Previa
 
