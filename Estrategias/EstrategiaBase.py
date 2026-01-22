@@ -15,7 +15,7 @@ class EstrategiaBase(ABC):
         # Inicializamos el DataFrame con las columnas correctas para evitar warnings futuros
         self.velas = pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'cerrada'])
         self.posicion_abierta = False # Memoria de estado para el BotController
-        self.tp_parcial_realizado = False # [NUEVO] Control para TP Parcial
+        self.nivel_tp_actual = 0 # [NUEVO] Control para TP Escalonado (0 = ningún nivel ejecutado)
 
         # --- Variable para Gestión de Riesgo (Fase 6) ---
         self.atr_actual = 0.0 

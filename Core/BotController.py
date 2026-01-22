@@ -269,7 +269,7 @@ class BotController:
                 if not sigue_abierta:
                     print(f"{Fore.YELLOW}🔓 Posición cerrada externamente en {simbolo}.")
                     estrategia.posicion_abierta = False
-                    estrategia.tp_parcial_realizado = False # Reset flag
+                    estrategia.nivel_tp_actual = 0 # Reset nivel escalonado
                     self.gestor_ejecucion.cancelar_ordenes_pendientes(simbolo)
                     return 
 
@@ -323,39 +323,73 @@ class BotController:
 
         roe_real = delta_precio * lev 
         
-        # --- [NUEVO] TOMA DE GANANCIAS PARCIAL ---
+        # --- [NUEVO] TOMA DE GANANCIAS (SIMPLE O ESCALONADO) ---
         try:
             full_conf = Config.cargar_configuracion()
             riesgo = full_conf.get('sistema_riesgo', {})
-            tp_parcial_roe = riesgo.get('tp_parcial_roe', 0.20) # 20% ROE
-            pct_venta = riesgo.get('porcentaje_venta_parcial', 0.50) # 50% Venta
-
-            # Solo ejecutamos si NO se ha hecho antes y alcanzamos el ROE
-            if not estrategia.tp_parcial_realizado and roe_real >= tp_parcial_roe:
-                print(f"{Fore.MAGENTA}✨ ROE {roe_real*100:.1f}% >= {tp_parcial_roe*100}% -> Ejecutando TP Parcial...")
+            
+            # Verificar si el sistema escalonado está activo
+            tp_escalonados = riesgo.get('tp_escalonados', {})
+            usar_escalonado = tp_escalonados.get('activo', False)
+            
+            if usar_escalonado:
+                # ====== SISTEMA ESCALONADO ======
+                niveles = tp_escalonados.get('niveles', [])
+                nivel_actual_idx = estrategia.nivel_tp_actual
                 
-                # Calcular cantidad a vender
-                cantidad_total = datos_pos['amount']
-                cantidad_venta = cantidad_total * pct_venta
+                # Verificar si hay un siguiente nivel disponible
+                if nivel_actual_idx < len(niveles):
+                    nivel_config = niveles[nivel_actual_idx]
+                    roe_objetivo = nivel_config.get('roe', 999)  # Default alto para no activar
+                    pct_venta = nivel_config.get('porcentaje_venta', 0)
+                    
+                    if roe_real >= roe_objetivo:
+                        print(f"{Fore.MAGENTA}🪜 Nivel {nivel_actual_idx + 1}: ROE {roe_real*100:.1f}% >= {roe_objetivo*100}% -> Vendiendo {pct_venta*100}%")
+                        
+                        cantidad_total = datos_pos['amount']
+                        cantidad_venta = cantidad_total * pct_venta
+                        cantidad_venta = self.gestor_ejecucion.exchange.amount_to_precision(simbolo, cantidad_venta)
+                        cantidad_venta = float(cantidad_venta)
+                        
+                        if cantidad_venta > 0:
+                            exito = self.gestor_ejecucion.ejecutar_cierre_parcial(simbolo, cantidad_venta, lado)
+                            if exito:
+                                estrategia.nivel_tp_actual += 1
+                                print(f"{Fore.GREEN}✅ Nivel {nivel_actual_idx + 1} ejecutado. Siguiente: {estrategia.nivel_tp_actual + 1}/{len(niveles)}")
+                                
+                                # Auto Break-Even después del primer nivel
+                                if nivel_actual_idx == 0 and tp_escalonados.get('auto_break_even', True):
+                                    self.mover_sl_a_break_even(simbolo, datos_pos, lado)
+                                
+                                # Recargar datos
+                                datos_pos = self.gestor_ejecucion.obtener_datos_posicion(simbolo)
+                                if not datos_pos: return
+            else:
+                # ====== SISTEMA SIMPLE (ORIGINAL) ======
+                tp_parcial_roe = riesgo.get('tp_parcial_roe', 0.20)
+                pct_venta = riesgo.get('porcentaje_venta_parcial', 0.50)
                 
-                # Ajuste de precisión (Importante para evitar errores de API)
-                cantidad_venta = self.gestor_ejecucion.exchange.amount_to_precision(simbolo, cantidad_venta)
-                cantidad_venta = float(cantidad_venta)
-
-                if cantidad_venta > 0:
-                    exito = self.gestor_ejecucion.ejecutar_cierre_parcial(
-                        simbolo, cantidad_venta, lado
-                    )
-                    if exito:
-                        estrategia.tp_parcial_realizado = True
-                        print(f"{Fore.GREEN}✅ TP Parcial Completado. Flag activada.")
-                        # Recargamos datos de posición para el Trailing posterior
-                        datos_pos = self.gestor_ejecucion.obtener_datos_posicion(simbolo)
-                        if not datos_pos: return 
+                # nivel_tp_actual = 0 significa no ejecutado, = 1 significa ejecutado
+                if estrategia.nivel_tp_actual == 0 and roe_real >= tp_parcial_roe:
+                    print(f"{Fore.MAGENTA}✨ ROE {roe_real*100:.1f}% >= {tp_parcial_roe*100}% -> Ejecutando TP Parcial...")
+                    
+                    cantidad_total = datos_pos['amount']
+                    cantidad_venta = cantidad_total * pct_venta
+                    cantidad_venta = self.gestor_ejecucion.exchange.amount_to_precision(simbolo, cantidad_venta)
+                    cantidad_venta = float(cantidad_venta)
+                    
+                    if cantidad_venta > 0:
+                        exito = self.gestor_ejecucion.ejecutar_cierre_parcial(simbolo, cantidad_venta, lado)
+                        if exito:
+                            estrategia.nivel_tp_actual = 1  # Marcar como ejecutado
+                            print(f"{Fore.GREEN}✅ TP Parcial Completado.")
+                            datos_pos = self.gestor_ejecucion.obtener_datos_posicion(simbolo)
+                            if not datos_pos: return
+                            
         except Exception as e:
-            print(Fore.RED + f"⚠️ Error en lógica TP Parcial: {e}")
+            print(Fore.RED + f"⚠️ Error en lógica TP: {e}")
 
-        # --- FIN LÓGICA PARCIAL ---
+        # --- FIN LÓGICA TP ---
 
         orden_sl = self.gestor_ejecucion.obtener_orden_stop_loss(simbolo)
         if not orden_sl: return
@@ -419,6 +453,47 @@ class BotController:
                 print(f"{Fore.CYAN}🚀 {motivo}: Moviendo SL de {sl_actual} a {nuevo_sl}")
                 self.gestor_ejecucion.modificar_stop_loss(simbolo, orden_sl['id'], nuevo_sl, lado)
                 TradeLogger.registrar(simbolo, "TRAILING_UPDATE", nuevo_sl, f"{motivo}")
+
+    def mover_sl_a_break_even(self, simbolo, datos_pos, lado):
+        """
+        [NUEVO] Mueve el Stop Loss al precio de entrada + margen de seguridad.
+        Solo lo hace si el nuevo SL es MEJOR que el actual.
+        """
+        try:
+            entry_price = datos_pos['entryPrice']
+            margen_seguridad = entry_price * 0.0050  # 0.5% margen
+            
+            # Calcular precio BE según lado
+            if lado == 'buy':
+                precio_be = entry_price + margen_seguridad
+            else:
+                precio_be = entry_price - margen_seguridad
+            
+            # Obtener SL actual
+            orden_sl = self.gestor_ejecucion.obtener_orden_stop_loss(simbolo)
+            if not orden_sl:
+                print(f"{Fore.YELLOW}⚠️ No se encontró SL para aplicar Break-Even en {simbolo}")
+                return
+            
+            sl_actual = float(orden_sl['stopPrice'])
+            
+            # Verificar si el BE es mejor que el SL actual
+            es_mejor = False
+            if lado == 'buy':
+                es_mejor = precio_be > sl_actual
+            else:
+                es_mejor = precio_be < sl_actual
+            
+            if es_mejor:
+                print(f"{Fore.CYAN}🛡️ Break-Even: Moviendo SL de ${sl_actual:.4f} a ${precio_be:.4f}")
+                self.gestor_ejecucion.modificar_stop_loss(simbolo, orden_sl['id'], precio_be, lado)
+                TradeLogger.registrar(simbolo, "BREAK_EVEN", precio_be, f"Riesgo eliminado")
+            else:
+                print(f"{Fore.GREEN}✓ SL actual (${sl_actual:.4f}) ya es mejor que BE (${precio_be:.4f}). No se modifica.")
+                
+        except Exception as e:
+            print(Fore.RED + f"❌ Error en Break-Even para {simbolo}: {e}")
+
 
     def gestionar_ejecucion(self, simbolo, senal, estrategia):
         """
