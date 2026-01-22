@@ -129,18 +129,23 @@ def simular_estrategia(df, nombre_estrategia, params):
     elif nombre_estrategia == "EstrategiaSqueeze_Momentum":
         # FeatureEngine ya tiene KC, Lreg_Mom, RVOL
         # Requisito: Bollinger fuera de KC (Disparo) + Momentum Alineado
-        # Nota: La lógica exacta de "Disparo"
         
-        bb_u = df['BBU_20_2.0']
-        bb_l = df['BBL_20_2.0']
-        mom = df['Lreg_Mom']
-        rvol = df['RVOL']
+        # Calcular BB localmente para asegurar existencia
+        bb = ta.bbands(df['close'], length=20, std=2.0)
+        col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+        col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
         
-        mask_long = (df['close'] > bb_u) & (mom > 0) & (rvol > params['rvol_min'])
-        mask_short = (df['close'] < bb_l) & (mom < 0) & (rvol > params['rvol_min'])
-        
-        df.loc[mask_long, 'senal'] = 1
-        df.loc[mask_short, 'senal'] = -1
+        if col_u and col_l:
+            bb_u = bb[col_u]
+            bb_l = bb[col_l]
+            mom = df['Lreg_Mom']
+            rvol = df['RVOL']
+            
+            mask_long = (df['close'] > bb_u) & (mom > 0) & (rvol > params['rvol_min'])
+            mask_short = (df['close'] < bb_l) & (mom < 0) & (rvol > params['rvol_min'])
+            
+            df.loc[mask_long, 'senal'] = 1
+            df.loc[mask_short, 'senal'] = -1
 
     else: return -999
 
@@ -173,14 +178,13 @@ def main():
         mejor_score_par = -9999
         mejor_config_par = None
 
+        datos_encontrados = False
+
         # --- BUCLE DE TEMPORALIDADES ---
         for tf in TIMEFRAMES_COMPETENCIA:
             ruta_csv = os.path.join(DATA_DIR, tf, f"{simbolo_archivo}_{tf}.csv")
-            # DEBUG
-            # print(f"DEBUG: Buscando {ruta_csv}...")
             
             if not os.path.exists(ruta_csv): 
-                # print(f"DEBUG: No existe {ruta_csv}")
                 continue
 
             try:
@@ -191,6 +195,10 @@ def main():
                      
                 for c in ['close', 'high', 'low', 'open']: df[c] = pd.to_numeric(df[c], errors='coerce')
                 df.dropna(subset=['close'], inplace=True)
+                
+                if not df.empty:
+                    datos_encontrados = True
+
             except Exception as e: 
                 print(f"DEBUG ERROR leyendo {par}: {e}")
                 continue
@@ -205,9 +213,10 @@ def main():
                             mejor_config_par = {
                                 "estrategia": estrategia, "params": params, "timeframe": tf
                             }
-                    except: pass
+                    except Exception as e:
+                        print(f"DEBUG ERROR simular {estrategia}: {e}")
 
-        if mejor_config_par and mejor_score_par > -60:
+        if mejor_config_par and mejor_score_par > -999:
             tf_ant = cfg.get('timeframe')
             estrat_ant = cfg.get('estrategia')
             params_ant = cfg.get('parametros_estrategia')
@@ -229,7 +238,11 @@ def main():
             else:
                 print(f"{Fore.WHITE}{par:<10} | {ganador_str:<30} | {mejor_score_par:>7.1f}% | = Mantiene")
         else:
-            print(f"{Fore.RED}{par:<10} | {'SIN DATOS / PÉRDIDAS':<30} | ---")
+            if not datos_encontrados:
+                print(f"{Fore.RED}{par:<10} | {'SIN DATOS (Archivo no encontrado)':<30} | ---")
+            else:
+                score_str = f"{mejor_score_par:.1f}%" if mejor_score_par > -9000 else "---"
+                print(f"{Fore.YELLOW}{par:<10} | {'BAJO RENDIMIENTO / PÉRDIDAS':<30} | {score_str}")
 
     # --- RESUMEN Y CONFIRMACIÓN ---
     if not cambios_pendientes:

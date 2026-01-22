@@ -75,20 +75,40 @@ def calcular_indicadores_segun_estrategia(df, estrategia, params):
                 except: pass
     
     elif estrategia == "EstrategiaTrend_Candle":
-        # Recalcular si hay params custom
+        # Recalcular Medias
         df['EMA_F'] = ta.ema(df['close'], length=params.get('ema_fast', 20))
         df['EMA_S'] = ta.ema(df['close'], length=params.get('ema_slow', 50))
         df['distancia_emas'] = (df['EMA_F'] - df['EMA_S']) / df['close']
         
-        # Patrones ya vienen de FeatureEngine, no se recalculan con params
+        # Patrones de Velas:
+        # En FeatureEngine ya se calculan 'CDL_ENGULFING', 'CDL_HAMMER', 'CDL_SHOOTING'
+        # Nos aseguramos que existan, si no, 0.
+        cols_velas = ['CDL_ENGULFING', 'CDL_HAMMER', 'CDL_SHOOTING']
+        for c in cols_velas:
+            if c not in df.columns: df[c] = 0
         
     elif estrategia == "EstrategiaSqueeze_Momentum":
-        # FeatureEngine calcula con params default (KC 1.5 ATR, BB 2.0)
-        # Si quisieramos customizarlos aqui, tendriamos que recalcular KC y BB
-        # Por ahora asumimos defaults del FeatureEngine
-        pass
+        # FeatureEngine calcula Lreg_Mom, RVOL, y BB_Width
+        # Necesitamos asegurar que los inputs de la estrategia estén disponibles como features
+        # La estrategia usa: BBU, BBL, Lreg_Mom, RVOL.
+        # BBU y BBL son series de tiempo, el ML prefiere 'distancia al precio' o 'ancho'
+        
+        # Generamos distancias a las bandas para que el ML entienda "estoy rompiendo la banda"
+        # Re-calculamos BB localmente con params de estrategia si difieren, o usamos standard
+        bb = ta.bbands(df['close'], length=20, std=2.0)
+        col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+        col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
+        
+        if col_u and col_l:
+            df['dist_BBU'] = df['close'] - bb[col_u] # Positivo = Rompió arriba
+            df['dist_BBL'] = df['close'] - bb[col_l] # Negativo = Rompió abajo
+        else:
+            df['dist_BBU'] = 0
+            df['dist_BBL'] = 0
+            
+        # Lreg_Mom y RVOL ya vienen de FeatureEngine
     
-    df.dropna(inplace=True)
+    df.fillna(0, inplace=True)
     return df
 
 

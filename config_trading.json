@@ -17,18 +17,27 @@
     "trailing_stop_roe": 0.1,
     "stop_loss_pct": 0.02,
     "take_profit_pct": 0.28,
-    "tp_parcial_roe": 0.20,
-    "porcentaje_venta_parcial": 0.50,
+    "tp_parcial_roe": 0.2,
+    "porcentaje_venta_parcial": 0.5,
     "tp_escalonados": {
       "activo": true,
       "niveles": [
-        { "roe": 0.20, "porcentaje_venta": 0.30 },
-        { "roe": 0.35, "porcentaje_venta": 0.35 },
-        { "roe": 0.80, "porcentaje_venta": 0.67 }
+        {
+          "roe": 0.2,
+          "porcentaje_venta": 0.3
+        },
+        {
+          "roe": 0.35,
+          "porcentaje_venta": 0.35
+        },
+        {
+          "roe": 0.8,
+          "porcentaje_venta": 0.67
+        }
       ],
       "auto_break_even": true
     },
-    "ml_threshold": 0.80,
+    "ml_threshold": 0.65,
     "nota_adicional": "ml_threshold es el umbral minimo de probabilidad para aprobar una operacion"
   },
   "pares": {
@@ -41,7 +50,7 @@
       "parametros_estrategia": {
         "ema_fast": 20,
         "ema_slow": 200,
-        "adx_minimo": 25
+        "adx_minimo": 20
       }
     },
     "ETH/USDT": {
@@ -51,21 +60,22 @@
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 50,
-        "adx_minimo": 25
+        "ema_fast": 9,
+        "ema_slow": 200,
+        "adx_minimo": 20
       }
     },
     "BNB/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 15,
       "parametros_estrategia": {
-        "ema_fast": 50,
-        "ema_slow": 200,
-        "adx_minimo": 25
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 75,
+        "adx_minimo": 20
       }
     },
     "SOL/USDT": {
@@ -88,8 +98,8 @@
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 21,
+        "ema_fast": 9,
+        "ema_slow": 50,
         "adx_minimo": 20
       }
     },
@@ -100,9 +110,9 @@
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 50,
-        "adx_minimo": 25
+        "ema_fast": 9,
+        "ema_slow": 200,
+        "adx_minimo": 20
       }
     },
     "DOGE/USDT": {
@@ -125,7 +135,7 @@
       "apalancamiento": 10,
       "parametros_estrategia": {
         "ema_fast": 20,
-        "ema_slow": 21,
+        "ema_slow": 50,
         "adx_minimo": 20
       }
     },
@@ -137,8 +147,8 @@
       "apalancamiento": 10,
       "parametros_estrategia": {
         "ema_fast": 9,
-        "ema_slow": 200,
-        "adx_minimo": 25
+        "ema_slow": 50,
+        "adx_minimo": 20
       }
     },
     "LTC/USDT": {
@@ -163,7 +173,7 @@
       "parametros_estrategia": {
         "ema_fast": 20,
         "ema_slow": 200,
-        "adx_minimo": 25
+        "adx_minimo": 20
       }
     },
     "ATOM/USDT": {
@@ -186,7 +196,7 @@
       "apalancamiento": 10,
       "parametros_estrategia": {
         "ema_fast": 20,
-        "ema_slow": 50,
+        "ema_slow": 200,
         "adx_minimo": 20
       }
     },
@@ -197,9 +207,9 @@
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 50,
+        "ema_fast": 20,
         "ema_slow": 200,
-        "adx_minimo": 25
+        "adx_minimo": 20
       }
     },
     "POL/USDT": {
@@ -210,7 +220,7 @@
       "apalancamiento": 10,
       "parametros_estrategia": {
         "ema_fast": 9,
-        "ema_slow": 50,
+        "ema_slow": 200,
         "adx_minimo": 20
       }
     },
@@ -228,13 +238,14 @@
     },
     "RENDER/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
       "timeframe": "1h",
       "apalancamiento": 5,
       "parametros_estrategia": {
-        "ema_fast": 50,
-        "ema_slow": 200,
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 30,
+        "rsi_sobrecompra": 70,
         "adx_minimo": 20
       }
     },
@@ -247,7 +258,7 @@
       "parametros_estrategia": {
         "ema_fast": 20,
         "ema_slow": 200,
-        "adx_minimo": 25
+        "adx_minimo": 20
       }
     },
     "1000SHIB/USDT": {
@@ -269,7 +280,7 @@
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 50,
+        "ema_fast": 20,
         "ema_slow": 200,
         "adx_minimo": 20
       }
@@ -293,8 +304,8 @@
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 50,
+        "ema_fast": 9,
+        "ema_slow": 200,
         "adx_minimo": 20
       }
     },
@@ -326,12 +337,12 @@
       "activo": true,
       "estrategia": "EstrategiaTrend",
       "cantidad_operacion": "5%",
-      "timeframe": "1h",
+      "timeframe": "15m",
       "apalancamiento": 8,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 21,
-        "adx_minimo": 25
+        "ema_fast": 9,
+        "ema_slow": 200,
+        "adx_minimo": 20
       }
     },
     "BCH/USDT": {
@@ -365,27 +376,21 @@
       "timeframe": "1h",
       "apalancamiento": 5,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 21,
+        "ema_fast": 9,
+        "ema_slow": 50,
         "adx_minimo": 20
       }
     },
     "UNI/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaRSI_ADX",
+      "estrategia": "EstrategiaTrend_Candle",
       "cantidad_operacion": "10%",
-      "timeframe": "5m",
+      "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "rsi_periodo": 14,
-        "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70,
-        "adx_periodo": 14,
-        "adx_minimo": 25,
-        "bb_length": 20,
-        "bb_std": 2.0,
-        "ema_fast": 9,
-        "ema_slow": 21
+        "ema_fast": 20,
+        "ema_slow": 200,
+        "adx_minimo": 25
       }
     }
   }

@@ -15,8 +15,8 @@ class GestorPrediccion:
         # Clave: "BTCUSDT_1h", Valor: Modelo Cargado
         self.modelos_cache = {} 
         self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        # Actualización: Modelos están en la raíz "Modelos/" según reestructuración
-        self.model_dir = os.path.join(self.root_dir, "Modelos")
+        # Actualización: Modelos están en "Machine_Learning/Models"
+        self.model_dir = os.path.join(self.root_dir, "Machine_Learning", "Models")
 
     def _cargar_modelo_especifico(self, simbolo, timeframe):
         """Carga dinámica del modelo según par y timeframe"""

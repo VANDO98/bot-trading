@@ -110,17 +110,33 @@ class FeatureEngine:
         df['Lreg_Mom'] = ta.linreg(delta_price, length=20)
 
         # C. Patrones de Velas (Price Action)
-        # Engulfing (0=No, 100=Bull, -100=Bear)
-        cdl_engulfing = ta.cdl_pattern(df['open'], df['high'], df['low'], df['close'], name="engulfing")
-        # Hammer (100)
-        cdl_hammer = ta.cdl_pattern(df['open'], df['high'], df['low'], df['close'], name="hammer")
-        # Shooting Star (-100)
-        cdl_shooting = ta.cdl_pattern(df['open'], df['high'], df['low'], df['close'], name="shootingstar")
-        
-        # Unificamos nombres simples
-        df['CDL_ENGULFING'] = cdl_engulfing['CDL_ENGULFING']
-        df['CDL_HAMMER'] = cdl_hammer['CDL_HAMMER']
-        df['CDL_SHOOTING'] = cdl_shooting['CDL_SHOOTING']
+        # C. Patrones de Velas (Price Action)
+        try:
+            # Engulfing (0=No, 100=Bull, -100=Bear)
+            cdl_engulfing = ta.cdl_pattern(df['open'], df['high'], df['low'], df['close'], name="engulfing")
+            if cdl_engulfing is not None and not cdl_engulfing.empty:
+                 df['CDL_ENGULFING'] = cdl_engulfing.iloc[:, 0]
+            else:
+                 df['CDL_ENGULFING'] = 0
+
+            # Hammer (100)
+            cdl_hammer = ta.cdl_pattern(df['open'], df['high'], df['low'], df['close'], name="hammer")
+            if cdl_hammer is not None and not cdl_hammer.empty:
+                 df['CDL_HAMMER'] = cdl_hammer.iloc[:, 0]
+            else:
+                 df['CDL_HAMMER'] = 0
+
+            # Shooting Star (-100)
+            cdl_shooting = ta.cdl_pattern(df['open'], df['high'], df['low'], df['close'], name="shootingstar")
+            if cdl_shooting is not None and not cdl_shooting.empty:
+                 df['CDL_SHOOTING'] = cdl_shooting.iloc[:, 0]
+            else:
+                 df['CDL_SHOOTING'] = 0
+        except Exception as e:
+            # Fallback si falla TA-Lib
+            df['CDL_ENGULFING'] = 0
+            df['CDL_HAMMER'] = 0
+            df['CDL_SHOOTING'] = 0
 
         # Limpieza final para inferencia (Relleno de NaNs incipientes)
         df.fillna(0, inplace=True)
