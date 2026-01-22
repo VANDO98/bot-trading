@@ -2,7 +2,15 @@ import pandas as pd
 import pandas_ta as ta
 import numpy as np
 import joblib
+import sys
 import os
+
+# --- PATH SETUP ---
+current_dir = os.path.dirname(os.path.abspath(__file__))
+ml_dir = os.path.dirname(current_dir)
+core_dir = os.path.join(ml_dir, 'Core')
+sys.path.append(core_dir)
+
 import glob
 from colorama import Fore, init
 
@@ -10,8 +18,8 @@ init(autoreset=True)
 
 # --- CONFIGURACIÓN ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CARPETA_DATA = os.path.join(BASE_DIR, "Data_Entrenamiento") # Datos crudos originales
-ARCHIVO_MODELO = os.path.join(BASE_DIR, "modelo_rf_trading.joblib")
+CARPETA_DATA = os.path.join(ml_dir, "Data", "Raw") # Datos crudos originales
+ARCHIVO_MODELO = os.path.join(ml_dir, "Models", "modelo_rf_trading.joblib")
 
 # Parámetros de Simulación (Deben ser iguales a los del entrenamiento)
 UMBRAL_CONFIANZA = 0.55    # Solo entramos si el modelo está 55% seguro

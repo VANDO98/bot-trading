@@ -6,7 +6,7 @@ import os
 import sys
 
 # Importar Core
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 from Core.Utils.FeatureEngine import FeatureEngine as CoreEngine
 
 class FeatureEngineering:
@@ -109,8 +109,11 @@ class FeatureEngineering:
 # Bloque para ejecutar como script independiente si se desea
 if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    input_dir = os.path.join(base_dir, "Data_Entrenamiento")
-    output_dir = os.path.join(base_dir, "Data_Procesada")
+    # Corrigiendo rutas para la nueva estructura
+    # FeatureEngineering esta en Core. Data en ../Data
+    ml_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    input_dir = os.path.join(ml_dir, "Data", "Raw")
+    output_dir = os.path.join(ml_dir, "Data", "Processed")
     
     fe = FeatureEngineering()
     fe.generar_dataset_entrenamiento(input_dir, output_dir)

@@ -11,16 +11,21 @@ from colorama import Fore, init
 import sys
 
 # Permitir importar Core desde el directorio padre
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+# Permitir importar Core desde el directorio padre (Scripts -> ML -> Root)
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 from Core.Utils.FeatureEngine import FeatureEngine
 
 init(autoreset=True)
 
 # --- CONFIGURACIÓN ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "..", "Data", "Historico")
-MODEL_DIR = os.path.join(BASE_DIR, "..", "Modelos") # Raíz de modelos
-CONFIG_PATH = os.path.join(BASE_DIR, "..", "config_trading.json")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__)) # Machine_Learning/Scripts
+# Data/Historico esta en Root? config_trading esta en Root?
+# Si estamos en ML/Scripts, root es ../..
+ROOT_DIR = os.path.join(BASE_DIR, "..", "..")
+# Unificado: Datos historicos en Machine_Learning/Data/Historico
+DATA_DIR = os.path.join(BASE_DIR, "..", "Data", "Historico") 
+MODEL_DIR = os.path.join(BASE_DIR, "..", "Models") # Machine_Learning/Models
+CONFIG_PATH = os.path.join(ROOT_DIR, "config_trading.json")
 
 # Creamos la raíz de modelos si no existe
 if not os.path.exists(MODEL_DIR):

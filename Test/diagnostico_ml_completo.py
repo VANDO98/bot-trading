@@ -12,14 +12,14 @@ init(autoreset=True)
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(root_dir)
 
-from Machine_Learning.FeatureEngineering import FeatureEngineering
+from Machine_Learning.Core.FeatureEngineering import FeatureEngineering
 
 def diagnostico_ml():
     print(Fore.YELLOW + "🔍 INICIANDO DIAGNÓSTICO FORENSE DE MACHINE LEARNING")
     print("=======================================================")
 
     # 1. CARGAR MODELO Y VER SU ADN
-    ruta_modelo = os.path.join(root_dir, "Machine_Learning", "modelo_rf_trading.joblib")
+    ruta_modelo = os.path.join(root_dir, "Machine_Learning", "Models", "modelo_rf_trading.joblib")
     
     if not os.path.exists(ruta_modelo):
         print(Fore.RED + "❌ CRÍTICO: No existe el archivo .joblib")

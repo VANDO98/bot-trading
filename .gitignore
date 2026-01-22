@@ -31,6 +31,7 @@ historial_trading.csv
 Core/Utils/Logs/
 *.xlsx
 *.png
+*.pdf
 
 # --- Machine Learning (Datasets) ---
 Machine_Learning/Data_Entrenamiento/

@@ -144,21 +144,74 @@ class AnalizadorTrades:
         
         return True
     
+    def _agrupar_ordenes_split(self, df):
+        """
+        Agrupa múltiples fills de la misma orden en una sola operación lógica.
+        Evita inflar el conteo de trades y el cálculo erróneo de Win Rate.
+        """
+        if df.empty or 'order' not in df.columns:
+            return df
+            
+        # Agregaciones
+        # - Precio: Promedio ponderado por cantidad
+        # - Cantidad: Suma
+        # - Fee: Suma
+        # - Timestamp: Mantenemos el primero
+        
+        def weighted_avg_price(x):
+            d = x.to_frame()
+            # Buscamos la cantidad correspondiente en el índice original
+            weights = df.loc[x.index, 'amount']
+            return (x * weights).sum() / weights.sum()
+
+        try:
+            # Agrupar por Orden
+            df_grouped = df.groupby('order').agg({
+                'symbol': 'first',
+                'side': 'first',
+                'timestamp': 'first',
+                'price': weighted_avg_price,
+                'amount': 'sum',
+                'fee_usdt': 'sum',
+                # Mantenemos columnas útiles si existen
+                'datetime': 'first'
+            }).reset_index()
+            
+            # Ordenar por tiempo original
+            df_grouped = df_grouped.sort_values('timestamp')
+            
+            print(f"📦 Agrupación de fills: {len(df)} fills -> {len(df_grouped)} órdenes únicas")
+            return df_grouped
+            
+        except Exception as e:
+            print(f"⚠️ Error agrupando fills (continuando sin agrupar): {e}")
+            return df # Fallback: devolver original si falla
+    
     def procesar_datos(self):
         """Procesa y calcula métricas de los trades"""
         if self.trades_df is None or self.trades_df.empty:
             return
         
-        # Normalizar timestamps
+        # 1. Calcular comisiones en USDT (antes de agrupar)
+        # Algunos trades pueden no tener fee o tenerlo en otra moneda (BNB)
+        # Aquí asumimos USDT para simplificar, o 0 si no lo encontramos
+        def get_fee(row):
+            if isinstance(row.get('fee'), dict):
+                cost = row['fee'].get('cost', 0)
+                currency = row['fee'].get('currency', '')
+                if currency == 'USDT':
+                    return cost
+            return 0
+            
+        self.trades_df['fee_usdt'] = self.trades_df.apply(get_fee, axis=1)
+        
+        # 2. Agrupar Fills (Split Trades)
+        self.trades_df = self._agrupar_ordenes_split(self.trades_df)
+        
+        # 3. Normalizar timestamps y columnas finales
         self.trades_df['fecha_hora'] = pd.to_datetime(
             self.trades_df['timestamp'], 
             unit='ms'
-        )
-        
-        # Calcular comisiones en USDT
-        self.trades_df['fee_usdt'] = self.trades_df.apply(
-            lambda row: row['fee']['cost'] if row['fee']['currency'] == 'USDT' else 0,
-            axis=1
         )
         
         # Calcular valor de cada trade
@@ -347,6 +400,86 @@ class AnalizadorTrades:
         
         return ruta_dashboard
     
+    def _calcular_pnl_por_trade(self):
+        """
+        Calcula el PnL realizado para cada trade.
+        Analiza trades cronológicamente y asigna PnL cuando se cierra una posición.
+        
+        Returns:
+            pd.Series: Serie con PnL para cada trade (índice alineado con self.trades_df)
+        """
+        if self.trades_df is None or self.trades_df.empty:
+            return pd.Series(dtype=float)
+        
+        # Crear una copia ordenada por símbolo y timestamp
+        df_sorted = self.trades_df.sort_values(['symbol', 'timestamp']).copy()
+        
+        # Inicializar columna de PnL
+        pnl_valores = []
+        
+        for simbolo in df_sorted['symbol'].unique():
+            trades_simbolo = df_sorted[df_sorted['symbol'] == simbolo]
+            
+            posicion_actual = 0  # Cantidad en posición (+ para long, - para short)
+            precio_entrada = 0
+            
+            for idx, trade in trades_simbolo.iterrows():
+                pnl_trade = 0.0  # PnL para este trade específico
+                cantidad = trade['amount']
+                precio = trade['price']
+                
+                if trade['side'] == 'buy':
+                    # Compra
+                    if posicion_actual < 0:
+                        # Cerrando short
+                        cantidad_cerrada = min(cantidad, abs(posicion_actual))
+                        pnl_trade = (precio_entrada - precio) * cantidad_cerrada
+                        posicion_actual += cantidad_cerrada
+                        
+                        # Si hay cantidad restante, abrimos long
+                        if cantidad > cantidad_cerrada:
+                            posicion_actual = cantidad - cantidad_cerrada
+                            precio_entrada = precio
+                        elif posicion_actual == 0:
+                            precio_entrada = 0
+                    else:
+                        # Abriendo o incrementando long
+                        if posicion_actual > 0:
+                            # Promedio ponderado del precio de entrada
+                            precio_entrada = (precio_entrada * posicion_actual + precio * cantidad) / (posicion_actual + cantidad)
+                        else:
+                            precio_entrada = precio
+                        posicion_actual += cantidad
+                else:
+                    # Venta
+                    if posicion_actual > 0:
+                        # Cerrando long
+                        cantidad_cerrada = min(cantidad, posicion_actual)
+                        pnl_trade = (precio - precio_entrada) * cantidad_cerrada
+                        posicion_actual -= cantidad_cerrada
+                        
+                        # Si hay cantidad restante, abrimos short
+                        if cantidad > cantidad_cerrada:
+                            posicion_actual = -(cantidad - cantidad_cerrada)
+                            precio_entrada = precio
+                        elif posicion_actual == 0:
+                            precio_entrada = 0
+                    else:
+                        # Abriendo o incrementando short
+                        if posicion_actual < 0:
+                            # Promedio ponderado del precio de entrada
+                            precio_entrada = (precio_entrada * abs(posicion_actual) + precio * cantidad) / (abs(posicion_actual) + cantidad)
+                        else:
+                            precio_entrada = precio
+                        posicion_actual -= cantidad
+                
+                pnl_valores.append((idx, pnl_trade))
+        
+        # Crear serie con el índice correcto
+        pnl_series = pd.Series(dict(pnl_valores), name='pnl_realizado')
+        # Reindexar para que coincida con el DataFrame original
+        return pnl_series.reindex(df_sorted.index, fill_value=0.0)
+    
     def exportar_excel(self, df_metricas, carpeta_salida):
         """
         Exporta los resultados a un archivo Excel
@@ -364,13 +497,35 @@ class AnalizadorTrades:
             # Hoja 1: Resumen
             df_metricas.to_excel(writer, sheet_name='Resumen', index=False)
             
-            # Hoja 2: Trades completos
-            columnas_importantes = [
-                'fecha_hora', 'symbol', 'side', 'price', 'amount', 
-                'valor_trade', 'fee_usdt', 'tipo'
+            # Hoja 2: Trades completos con mejoras
+            df_trades = self.trades_df.copy()
+            
+            # 1. Calcular PnL por trade
+            df_trades['pnl_realizado'] = self._calcular_pnl_por_trade()
+            
+            # 2. Convertir timestamp a hora local Lima (UTC-5)
+            df_trades['fecha_hora_lima'] = pd.to_datetime(
+                df_trades['timestamp'], 
+                unit='ms'
+            ).dt.tz_localize('UTC').dt.tz_convert('America/Lima').dt.tz_localize(None)
+            
+            # 3. Limpiar nombres de símbolos
+            df_trades['symbol_limpio'] = df_trades['symbol'].apply(self._limpiar_nombre_par)
+            
+            # 4. Seleccionar y reordenar columnas
+            columnas_exportar = [
+                'fecha_hora_lima', 'symbol_limpio', 'tipo', 'side', 
+                'price', 'amount', 'valor_trade', 'pnl_realizado', 'fee_usdt'
             ]
-            df_trades = self.trades_df[columnas_importantes].copy()
-            df_trades.to_excel(writer, sheet_name='Trades', index=False)
+            
+            # Renombrar columnas para mejor presentación
+            df_export = df_trades[columnas_exportar].copy()
+            df_export.columns = [
+                'Fecha/Hora (Lima)', 'Par', 'Tipo', 'Lado', 
+                'Precio', 'Cantidad', 'Valor Trade (USDT)', 'PnL Realizado (USDT)', 'Comisión (USDT)'
+            ]
+            
+            df_export.to_excel(writer, sheet_name='Trades', index=False)
         
         return ruta_excel
     

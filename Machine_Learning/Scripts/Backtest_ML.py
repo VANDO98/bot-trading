@@ -2,7 +2,15 @@ import pandas as pd
 import pandas_ta as ta
 import numpy as np
 import joblib
+import sys
 import os
+
+# --- PATH SETUP (Fix imports from Core) ---
+current_dir = os.path.dirname(os.path.abspath(__file__)) # Machine_Learning/Scripts
+ml_dir = os.path.dirname(current_dir) # Machine_Learning
+core_dir = os.path.join(ml_dir, 'Core')
+sys.path.append(core_dir)
+
 import glob
 from colorama import Fore, init, Style
 from DataProcessor import calcular_features, simular_estrategia_real # Importamos la lógica exacta
@@ -11,8 +19,9 @@ init(autoreset=True)
 
 # --- CONFIGURACIÓN ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CARPETA_DATA = os.path.join(BASE_DIR, "Data_Entrenamiento")
-ARCHIVO_MODELO = os.path.join(BASE_DIR, "modelo_rf_trading.joblib")
+# Datos crudos ahora estan en Machine_Learning/Data/Raw
+CARPETA_DATA = os.path.join(ml_dir, "Data", "Raw") 
+ARCHIVO_MODELO = os.path.join(ml_dir, "Models", "modelo_rf_trading.joblib")
 
 # UMBRAL A TESTEAR (Debe ser el mismo de tu JSON)
 UMBRAL_CONFIANZA = 0.70 

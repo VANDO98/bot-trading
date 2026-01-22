@@ -6,7 +6,7 @@ class MLLogger:
     # 1. Calculamos la ruta absoluta a la carpeta Machine_Learning
     # (Estamos en Core/Utils/, así que subimos 3 niveles para llegar a la raíz)
     ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    ARCHIVO_LOG = os.path.join(ROOT_DIR, "Machine_Learning", "historial_ml.csv")
+    ARCHIVO_LOG = os.path.join(ROOT_DIR, "Machine_Learning", "Logs", "historial_ml.csv")
 
     @staticmethod
     def registrar_prediccion(par, probabilidad, umbral, resultado, input_features=None):

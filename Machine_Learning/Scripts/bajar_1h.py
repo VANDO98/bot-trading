@@ -22,5 +22,7 @@ while True:
     print(f"Bolas: {len(velas)}", end='\r')
 
 df = pd.DataFrame(velas, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-df.to_csv(f"Data/Historico/BTCUSDT_{timeframe}.csv", index=False)
+# Guardar en Machine_Learning/Data/Historico
+output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Data", "Historico", f"BTCUSDT_{timeframe}.csv")
+df.to_csv(output_path, index=False)
 print("\n¡Listo!")

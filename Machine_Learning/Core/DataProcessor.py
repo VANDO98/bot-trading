@@ -9,8 +9,11 @@ init(autoreset=True)
 
 # --- CONFIGURACIÓN DE RUTAS ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CARPETA_ENTRADA = os.path.join(BASE_DIR, "Data_Entrenamiento")
-CARPETA_SALIDA = os.path.join(BASE_DIR, "Data_Procesada")
+# BASE_DIR es Core/. Data esta en ../Data
+CORE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Data/Raw y Data/Processed
+CARPETA_ENTRADA = os.path.join(CORE_DIR, "..", "Data", "Raw")
+CARPETA_SALIDA = os.path.join(CORE_DIR, "..", "Data", "Processed")
 ARCHIVO_SALIDA = os.path.join(CARPETA_SALIDA, "DATASET_ENTRENAMIENTO_V1.csv")
 
 # ==============================================================================
