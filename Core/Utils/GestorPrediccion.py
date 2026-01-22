@@ -15,7 +15,8 @@ class GestorPrediccion:
         # Clave: "BTCUSDT_1h", Valor: Modelo Cargado
         self.modelos_cache = {} 
         self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.model_dir = os.path.join(self.root_dir, "Machine_Learning", "Models")
+        # Actualización: Modelos están en la raíz "Modelos/" según reestructuración
+        self.model_dir = os.path.join(self.root_dir, "Modelos")
 
     def _cargar_modelo_especifico(self, simbolo, timeframe):
         """Carga dinámica del modelo según par y timeframe"""
@@ -69,6 +70,20 @@ class GestorPrediccion:
                     if col_u and col_l:
                         df['dist_upper'] = df['close'] - bb[col_u]
                         df['dist_lower'] = df['close'] - bb[col_l]
+        
+        elif estrategia_nombre == "EstrategiaRSI_ADX":
+             # Recalcular si los parámetros difieren del default (14)
+             if 'rsi_periodo' in params:
+                 df['RSI'] = ta.rsi(df['close'], length=params['rsi_periodo']).fillna(50)
+                 df['RSI_Slope'] = df['RSI'].diff(1)
+             
+             if 'adx_periodo' in params:
+                 adx = ta.adx(df['high'], df['low'], df['close'], length=params['adx_periodo'])
+                 if adx is not None:
+                     try:
+                         col_adx = [c for c in adx.columns if c.startswith('ADX') and not c.startswith('ADX_') is False][0]
+                         df['ADX'] = adx[col_adx].fillna(0)
+                     except: pass
         
         df.fillna(0, inplace=True)
         return df

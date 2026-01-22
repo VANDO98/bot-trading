@@ -357,6 +357,10 @@ class BotController:
                                 estrategia.nivel_tp_actual += 1
                                 print(f"{Fore.GREEN}✅ Nivel {nivel_actual_idx + 1} ejecutado. Siguiente: {estrategia.nivel_tp_actual + 1}/{len(niveles)}")
                                 
+                                # LOGGING IMPORTANTE
+                                precio_actual = datos_pos.get('markPrice', 0)
+                                TradeLogger.registrar(simbolo, "PARTIAL_TP_LADDER", precio_actual, f"Nivel {nivel_actual_idx + 1} - Venta {pct_venta*100}%")
+
                                 # Auto Break-Even después del primer nivel
                                 if nivel_actual_idx == 0 and tp_escalonados.get('auto_break_even', True):
                                     self.mover_sl_a_break_even(simbolo, datos_pos, lado)
@@ -383,6 +387,11 @@ class BotController:
                         if exito:
                             estrategia.nivel_tp_actual = 1  # Marcar como ejecutado
                             print(f"{Fore.GREEN}✅ TP Parcial Completado.")
+                            
+                            # LOGGING IMPORTANTE
+                            precio_actual = datos_pos.get('markPrice', 0)
+                            TradeLogger.registrar(simbolo, "PARTIAL_TP_SIMPLE", precio_actual, f"Venta {pct_venta*100}% (ROE {roe_real*100:.1f}%)")
+
                             datos_pos = self.gestor_ejecucion.obtener_datos_posicion(simbolo)
                             if not datos_pos: return
                             

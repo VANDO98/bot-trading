@@ -23,7 +23,7 @@
       "activo": true,
       "niveles": [
         { "roe": 0.20, "porcentaje_venta": 0.30 },
-        { "roe": 0.40, "porcentaje_venta": 0.35 },
+        { "roe": 0.35, "porcentaje_venta": 0.35 },
         { "roe": 0.80, "porcentaje_venta": 0.67 }
       ],
       "auto_break_even": true
