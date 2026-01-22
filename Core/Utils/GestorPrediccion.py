@@ -83,7 +83,17 @@ class GestorPrediccion:
                      try:
                          col_adx = [c for c in adx.columns if c.startswith('ADX') and not c.startswith('ADX_') is False][0]
                          df['ADX'] = adx[col_adx].fillna(0)
+                         col_adx = [c for c in adx.columns if c.startswith('ADX') and not c.startswith('ADX_') is False][0]
+                         df['ADX'] = adx[col_adx].fillna(0)
                      except: pass
+        
+        elif estrategia_nombre == "EstrategiaTrend_Candle":
+             df['EMA_F'] = ta.ema(df['close'], length=params.get('ema_fast', 20))
+             df['EMA_S'] = ta.ema(df['close'], length=params.get('ema_slow', 50))
+             df['distancia_emas'] = (df['EMA_F'] - df['EMA_S']) / df['close']
+
+        elif estrategia_nombre == "EstrategiaSqueeze_Momentum":
+             pass # Usa defaults del FeatureEngineering
         
         df.fillna(0, inplace=True)
         return df

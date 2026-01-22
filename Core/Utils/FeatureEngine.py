@@ -81,6 +81,47 @@ class FeatureEngine:
         # Evitar división por cero
         df['Cuerpo_Pct'] = np.where(rango_total != 0, cuerpo / rango_total, 0.0)
 
+        # 5. Indicadores Avanzados (Estrategias Mixtas)
+        # -----------------------------------------------------
+        
+        # A. Canales de Keltner (Para Squeeze)
+        # KC = EMA_20 +/- (1.5 * ATR)
+        if 'ATR' in df.columns:
+            ema_20 = ta.ema(df['close'], length=20)
+            atr = df['ATR']
+            df['KC_Upper'] = ema_20 + (1.5 * atr)
+            df['KC_Lower'] = ema_20 - (1.5 * atr)
+            
+            # Squeeze: Bandas Bollinger DENTRO de Keltner
+            if 'BBU_20_2.0' in df.columns and 'BBL_20_2.0' in df.columns:
+                 # Nota: pandas-ta nombra columnas como BBU_20_2.0
+                 pass 
+            else:
+                 # Recalcular si no existen (a veces FeatureEngine limpia nombres)
+                 # Ya calculamos bb arriba, intentamos recuperar
+                 pass
+
+        # B. Momentum (Regresión Lineal) - TTM Squeeze Style
+        # Delta = Close - Media(High, Low, SMA_20)
+        # Momentum = LinReg(Delta, length=20)
+        sma_20 = ta.sma(df['close'], length=20)
+        avg_price = (df['high'] + df['low'] + sma_20) / 3
+        delta_price = df['close'] - avg_price
+        df['Lreg_Mom'] = ta.linreg(delta_price, length=20)
+
+        # C. Patrones de Velas (Price Action)
+        # Engulfing (0=No, 100=Bull, -100=Bear)
+        cdl_engulfing = ta.cdl_pattern(df['open'], df['high'], df['low'], df['close'], name="engulfing")
+        # Hammer (100)
+        cdl_hammer = ta.cdl_pattern(df['open'], df['high'], df['low'], df['close'], name="hammer")
+        # Shooting Star (-100)
+        cdl_shooting = ta.cdl_pattern(df['open'], df['high'], df['low'], df['close'], name="shootingstar")
+        
+        # Unificamos nombres simples
+        df['CDL_ENGULFING'] = cdl_engulfing['CDL_ENGULFING']
+        df['CDL_HAMMER'] = cdl_hammer['CDL_HAMMER']
+        df['CDL_SHOOTING'] = cdl_shooting['CDL_SHOOTING']
+
         # Limpieza final para inferencia (Relleno de NaNs incipientes)
         df.fillna(0, inplace=True)
 

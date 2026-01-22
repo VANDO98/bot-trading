@@ -17,7 +17,7 @@ TIMEFRAMES_A_BAJAR = ["5m", "15m", "1h"] # <--- LAS 3 DIMENSIONES QUE NECESITAMO
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Ahora apuntamos a la raíz de históricos, las subcarpetas se crearán dinámicamente
 RAIZ_DATA = os.path.join(BASE_DIR, "..", "Data", "Historico") 
-ARCHIVO_CONFIG = os.path.join(BASE_DIR, "..", "config_trading.json")
+ARCHIVO_CONFIG = os.path.join(BASE_DIR, "..", "..", "config_trading.json")
 
 def cargar_configuracion():
     if not os.path.exists(ARCHIVO_CONFIG):

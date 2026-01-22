@@ -74,6 +74,20 @@ def calcular_indicadores_segun_estrategia(df, estrategia, params):
                     df['ADX'] = adx[col_adx].fillna(0)
                 except: pass
     
+    elif estrategia == "EstrategiaTrend_Candle":
+        # Recalcular si hay params custom
+        df['EMA_F'] = ta.ema(df['close'], length=params.get('ema_fast', 20))
+        df['EMA_S'] = ta.ema(df['close'], length=params.get('ema_slow', 50))
+        df['distancia_emas'] = (df['EMA_F'] - df['EMA_S']) / df['close']
+        
+        # Patrones ya vienen de FeatureEngine, no se recalculan con params
+        
+    elif estrategia == "EstrategiaSqueeze_Momentum":
+        # FeatureEngine calcula con params default (KC 1.5 ATR, BB 2.0)
+        # Si quisieramos customizarlos aqui, tendriamos que recalcular KC y BB
+        # Por ahora asumimos defaults del FeatureEngine
+        pass
+    
     df.dropna(inplace=True)
     return df
 

@@ -10,14 +10,17 @@ init(autoreset=True)
 # --- CONFIGURACIÓN ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Apuntamos a la raíz de Historico
+# Apuntamos a la raíz de Historico
 DATA_DIR = os.path.join(BASE_DIR, "..", "Data", "Historico") 
-CONFIG_PATH = os.path.join(BASE_DIR, "..", "config_trading.json")
+# Configuración está en la raíz del proyecto (dos niveles arriba de Core)
+CONFIG_PATH = os.path.join(BASE_DIR, "..", "..", "config_trading.json")
 COMISION = 0.0006 
 
 # Timeframes que buscará en sus respectivas carpetas
 TIMEFRAMES_COMPETENCIA = ["5m", "15m", "1h"] 
 
 # --- GRID (Igual que antes) ---
+# GRID AMPLIADO
 GRID_PARAMETROS = {
     "EstrategiaRSI_ADX": {
         "rsi_periodo": [14],
@@ -30,11 +33,26 @@ GRID_PARAMETROS = {
         "bb_std": [2.0, 2.5]
     },
     "EstrategiaTrend": {
-        "ema_fast": [9, 20, 50],
-        "ema_slow": [21, 50, 200],
-        "adx_minimo": [20, 25]
+        "ema_fast": [9, 20],
+        "ema_slow": [50, 200],
+        "adx_minimo": [20]
+    },
+    # NUEVAS ESTRATEGIAS
+    "EstrategiaTrend_Candle": {
+        "ema_fast": [20, 50],
+        "ema_slow": [50, 200],
+        "adx_minimo": [20, 25] # Requiere ADX fuerte y Patrón
+    },
+    "EstrategiaSqueeze_Momentum": {
+        "mult_kc": [1.5], # Defecto squeeze
+        "rvol_min": [1.2, 1.5]
     }
 }
+
+# Import relativo
+import sys
+sys.path.append(os.path.join(BASE_DIR, "..", "..")) # Root
+from Core.Utils.FeatureEngine import FeatureEngine
 
 def cargar_config():
     with open(CONFIG_PATH, 'r') as f: return json.load(f)
@@ -48,48 +66,82 @@ def generar_combinaciones(nombre_estrategia):
     values = params_grid.values()
     return [dict(zip(keys, v)) for v in itertools.product(*values)]
 
-def calcular_adx_seguro(df):
-    try:
-        adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
-        if adx_df is None: return pd.Series(0, index=df.index)
-        col = next((c for c in adx_df.columns if c.startswith('ADX')), None)
-        return adx_df[col] if col else pd.Series(0, index=df.index)
-    except: return pd.Series(0, index=df.index)
-
 def simular_estrategia(df, nombre_estrategia, params):
-    # (Misma lógica de simulación que la versión anterior)
-    # ... COPIA AQUÍ LA FUNCIÓN simular_estrategia DE LA RESPUESTA ANTERIOR ...
-    # ... O UTILIZA ESTA VERSIÓN ABREVIADA SI LA TIENES: ...
-    df = df.copy()
+    # Usamos FeatureEngine para calcular TODOS los indicadores de una vez
+    # Esto incluye Patrones, LinReg, etc.
+    df = FeatureEngine.generar_indicadores(df)
+    
+    # Rellenar NaNs tras cálculo
+    df.fillna(0, inplace=True)
+    
     df['senal'] = 0 
     
     if nombre_estrategia == "EstrategiaRSI_ADX":
-        df['RSI'] = ta.rsi(df['close'], length=params['rsi_periodo'])
-        df['ADX'] = calcular_adx_seguro(df)
-        mask_buy = (df['RSI'] < params['rsi_sobreventa']) & (df['ADX'] > params['adx_minimo'])
-        mask_sell = (df['RSI'] > params['rsi_sobrecompra']) & (df['ADX'] > params['adx_minimo'])
+        # Recalculo específico si params custom
+        rsi = ta.rsi(df['close'], length=params.get('rsi_periodo', 14)).fillna(50)
+        adx = df['ADX'] # Ya viene del FeatureEngine (std 14)
+        
+        mask_buy = (rsi < params['rsi_sobreventa']) & (adx > params['adx_minimo'])
+        mask_sell = (rsi > params['rsi_sobrecompra']) & (adx > params['adx_minimo'])
         df.loc[mask_buy, 'senal'] = 1
         df.loc[mask_sell, 'senal'] = -1
 
     elif nombre_estrategia == "EstrategiaBB":
+        # FeatureEngine da BB std 2. Si grid pide 2.5, recalculamos
         bb = ta.bbands(df['close'], length=params['bb_length'], std=params['bb_std'])
         if bb is not None:
             col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
             col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
             if col_u and col_l:
-                df.loc[df['close'] > bb[col_u], 'senal'] = 1
-                df.loc[df['close'] < bb[col_l], 'senal'] = -1
+                df.loc[df['close'] > bb[col_u], 'senal'] = 1 # Rompe arriba (Momentum)
+                df.loc[df['close'] < bb[col_l], 'senal'] = -1 # Rompe abajo
 
     elif nombre_estrategia == "EstrategiaTrend":
         if params['ema_fast'] >= params['ema_slow']: return -9999
-        df['EMA_F'] = ta.ema(df['close'], length=params['ema_fast'])
-        df['EMA_S'] = ta.ema(df['close'], length=params['ema_slow'])
-        df['ADX'] = calcular_adx_seguro(df)
+        # Recalcular EMAs según grid
+        ema_f = ta.ema(df['close'], length=params['ema_fast'])
+        ema_s = ta.ema(df['close'], length=params['ema_slow'])
+        adx = df['ADX']
         adx_min = params.get('adx_minimo', 20)
-        mask_buy = (df['EMA_F'] > df['EMA_S']) & (df['ADX'] > adx_min)
-        mask_sell = (df['EMA_F'] < df['EMA_S']) & (df['ADX'] > adx_min)
+        
+        mask_buy = (ema_f > ema_s) & (adx > adx_min)
+        mask_sell = (ema_f < ema_s) & (adx > adx_min)
         df.loc[mask_buy, 'senal'] = 1
         df.loc[mask_sell, 'senal'] = -1
+
+    # --- NUEVAS ---
+    elif nombre_estrategia == "EstrategiaTrend_Candle":
+        if params['ema_fast'] >= params['ema_slow']: return -9999
+        ema_f = ta.ema(df['close'], length=params['ema_fast'])
+        ema_s = ta.ema(df['close'], length=params['ema_slow'])
+        adx = df['ADX']
+        
+        # Patrones (FeatureEngine ya los calculó: 100/-100)
+        patron_bull = (df['CDL_ENGULFING'] == 100) | (df['CDL_HAMMER'] == 100)
+        patron_bear = (df['CDL_ENGULFING'] == -100) | (df['CDL_SHOOTING'] == -100)
+        
+        mask_buy = (ema_f > ema_s) & (adx > params['adx_minimo']) & patron_bull
+        mask_sell = (ema_f < ema_s) & (adx > params['adx_minimo']) & patron_bear
+        
+        df.loc[mask_buy, 'senal'] = 1
+        df.loc[mask_sell, 'senal'] = -1
+        
+    elif nombre_estrategia == "EstrategiaSqueeze_Momentum":
+        # FeatureEngine ya tiene KC, Lreg_Mom, RVOL
+        # Requisito: Bollinger fuera de KC (Disparo) + Momentum Alineado
+        # Nota: La lógica exacta de "Disparo"
+        
+        bb_u = df['BBU_20_2.0']
+        bb_l = df['BBL_20_2.0']
+        mom = df['Lreg_Mom']
+        rvol = df['RVOL']
+        
+        mask_long = (df['close'] > bb_u) & (mom > 0) & (rvol > params['rvol_min'])
+        mask_short = (df['close'] < bb_l) & (mom < 0) & (rvol > params['rvol_min'])
+        
+        df.loc[mask_long, 'senal'] = 1
+        df.loc[mask_short, 'senal'] = -1
+
     else: return -999
 
     df['posicion'] = df['senal'].shift(1).fillna(0)
@@ -97,16 +149,22 @@ def simular_estrategia(df, nombre_estrategia, params):
     df['retorno_neto'] = (df['posicion'] * df['retorno_mercado']) - (df['posicion'].diff().abs() * COMISION)
     return df['retorno_neto'].sum() * 100
 
+import argparse
+
 def main():
-    print(f"{Fore.MAGENTA}🔬 OPTIMIZER V5.1 (Lectura por Carpetas)...")
+    parser = argparse.ArgumentParser(description='Optimizador de Estrategias con GridSearchCV')
+    parser.add_argument('--auto', action='store_true', help='Aceptar cambios automáticamente sin preguntar')
+    args = parser.parse_args()
+
+    print(f"{Fore.MAGENTA}🔬 OPTIMIZER V6.0 (Safety First)...")
     
     config = cargar_config()
     pares_config = config.get('pares', {})
-    cambios_totales = 0
+    cambios_pendientes = []
     
-    print("-" * 120)
-    print(f"{'PAR':<10} | {'GANADOR (TF)':<22} | {'PARAMS OPTIMIZADOS':<60} | {'SCORE':<8}")
-    print("-" * 120)
+    print("-" * 140)
+    print(f"{'PAR':<10} | {'ESTRATEGIA GANADORA':<30} | {'SCORE':<8} | {'ESTADO'}")
+    print("-" * 140)
 
     for par, cfg in pares_config.items():
         if not cfg.get('activo', False): continue
@@ -115,19 +173,27 @@ def main():
         mejor_score_par = -9999
         mejor_config_par = None
 
-        # --- BUCLE DE TEMPORALIDADES (POR CARPETAS) ---
+        # --- BUCLE DE TEMPORALIDADES ---
         for tf in TIMEFRAMES_COMPETENCIA:
-            # AQUI ESTA EL CAMBIO: Busca en Data/Historico/{tf}/{archivo}
             ruta_csv = os.path.join(DATA_DIR, tf, f"{simbolo_archivo}_{tf}.csv")
+            # DEBUG
+            # print(f"DEBUG: Buscando {ruta_csv}...")
             
-            if not os.path.exists(ruta_csv): continue
+            if not os.path.exists(ruta_csv): 
+                # print(f"DEBUG: No existe {ruta_csv}")
+                continue
 
             try:
                 df = pd.read_csv(ruta_csv)
-                if df.empty: continue
+                if df.empty: 
+                     print(f"DEBUG: {par} {tf} vacio")
+                     continue
+                     
                 for c in ['close', 'high', 'low', 'open']: df[c] = pd.to_numeric(df[c], errors='coerce')
                 df.dropna(subset=['close'], inplace=True)
-            except: continue
+            except Exception as e: 
+                print(f"DEBUG ERROR leyendo {par}: {e}")
+                continue
 
             for estrategia in GRID_PARAMETROS.keys():
                 combinaciones = generar_combinaciones(estrategia)
@@ -142,33 +208,64 @@ def main():
                     except: pass
 
         if mejor_config_par and mejor_score_par > -60:
-            params_str = str(mejor_config_par['params']).replace('{','').replace('}','').replace("'", "")
-            ganador_str = f"{mejor_config_par['estrategia']} ({mejor_config_par['timeframe']})"
-            
             tf_ant = cfg.get('timeframe')
             estrat_ant = cfg.get('estrategia')
             params_ant = cfg.get('parametros_estrategia')
             
-            hubo_cambio = (estrat_ant != mejor_config_par['estrategia'] or 
-                           params_ant != mejor_config_par['params'] or
-                           tf_ant != mejor_config_par['timeframe'])
+            # Detectar si hay diferencias
+            diff = (estrat_ant != mejor_config_par['estrategia'] or 
+                    params_ant != mejor_config_par['params'] or
+                    tf_ant != mejor_config_par['timeframe'])
             
-            color = Fore.GREEN if hubo_cambio else Fore.WHITE
-            print(f"{color}{par:<10} | {ganador_str:<22} | {params_str[:60]:<60} | {mejor_score_par:>7.1f}%")
-
-            if hubo_cambio:
-                pares_config[par]['estrategia'] = mejor_config_par['estrategia']
-                pares_config[par]['parametros_estrategia'] = mejor_config_par['params']
-                pares_config[par]['timeframe'] = mejor_config_par['timeframe']
-                cambios_totales += 1
+            ganador_str = f"{mejor_config_par['estrategia']} ({mejor_config_par['timeframe']})"
+            
+            if diff:
+                print(f"{Fore.GREEN}{par:<10} | {ganador_str:<30} | {mejor_score_par:>7.1f}% | ⚡ MEJORA DETECTADA")
+                cambios_pendientes.append({
+                    'par': par,
+                    'new': mejor_config_par,
+                    'old': {'estrategia': estrat_ant, 'params': params_ant, 'timeframe': tf_ant}
+                })
+            else:
+                print(f"{Fore.WHITE}{par:<10} | {ganador_str:<30} | {mejor_score_par:>7.1f}% | = Mantiene")
         else:
-            print(f"{Fore.RED}{par:<10} | {'SIN RESULTADOS':<22} | (Pérdidas exceden -60% o faltan datos)")
+            print(f"{Fore.RED}{par:<10} | {'SIN DATOS / PÉRDIDAS':<30} | ---")
 
-    if cambios_totales > 0:
-        guardar_config(config)
-        print(f"\n{Fore.GREEN}✅ Optimización completada. {cambios_totales} pares actualizados.")
+    # --- RESUMEN Y CONFIRMACIÓN ---
+    if not cambios_pendientes:
+        print(f"\n{Fore.CYAN}👍 Todo optimizado. No se requieren cambios.")
+        return
+
+    print(f"\n{Fore.YELLOW}⚠️  SE PROPONEN {len(cambios_pendientes)} CAMBIOS:")
+    print("-" * 80)
+    for c in cambios_pendientes:
+        par = c['par']
+        old = c['old']
+        new = c['new']
+        print(f"🔹 {par}:")
+        print(f"   🔴 ANTES: {old['estrategia']} ({old['timeframe']}) {old['params']}")
+        print(f"   🟢 AHORA: {new['estrategia']} ({new['timeframe']}) {new['params']}")
+        print("-" * 80)
+
+    # Decisión
+    if args.auto:
+        confirmacion = 's'
+        print(f"{Fore.MAGENTA}🤖 Modo Auto: Aplicando cambios...")
     else:
-        print(f"\n{Fore.CYAN}👍 Todo optimizado.")
+        confirmacion = input(f"{Fore.CYAN}¿Aplicar estas actualizaciones a config_trading.json? [s/N]: ").strip().lower()
+
+    if confirmacion == 's':
+        for c in cambios_pendientes:
+            par = c['par']
+            nuevo_cfg = c['new']
+            pares_config[par]['estrategia'] = nuevo_cfg['estrategia']
+            pares_config[par]['parametros_estrategia'] = nuevo_cfg['params']
+            pares_config[par]['timeframe'] = nuevo_cfg['timeframe']
+        
+        guardar_config(config)
+        print(f"\n{Fore.GREEN}✅ Configuración actualizada con éxito.")
+    else:
+        print(f"\n{Fore.RED}❌ Cambios cancelados.")
 
 if __name__ == "__main__":
     main()
