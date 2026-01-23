@@ -13,41 +13,58 @@ class EstrategiaTrend_Candle(EstrategiaBase):
        - Shooting Star (para Short)
     """
 
-    def generar_senal(self, df):
-        if df is None or df.empty: return "NEUTRO"
+    def calcular_indicadores(self):
+        """
+        Calcula indicadores técnicos sobre self.velas (DataFrame).
+        """
+        if self.velas.empty: return
+
+        # 1. EMAs
+        # Usamos nombres específicos para no colisionar si hubiera otras
+        self.velas['EMA_F'] = ta.ema(self.velas['close'], length=self.parametros.get('ema_fast', 20))
+        self.velas['EMA_S'] = ta.ema(self.velas['close'], length=self.parametros.get('ema_slow', 50))
         
-        # Parámetros Custom
-        params = self.parametros
-        ema_fast = params.get('ema_fast', 20)
-        ema_slow = params.get('ema_slow', 50)
-        adx_min = params.get('adx_minimo', 20)
-        
-        # Última vela cerrada (índice -1)
-        # Nota: Los indicadores ya vienen calculados del FeatureEngine si se usó
-        # pero para seguridad recalculamos lo específico si falta
+        # 2. ADX
+        # ADX retorna un DF con ADX_14, DMP_14, DMN_14. Tomamos la columna ADX.
+        adx_df = ta.adx(self.velas['high'], self.velas['low'], self.velas['close'], length=14)
+        if adx_df is not None:
+             # Buscar la columna que empiece con ADX_
+            col_adx = [c for c in adx_df.columns if c.startswith('ADX')][0]
+            self.velas['ADX'] = adx_df[col_adx]
+        else:
+            self.velas['ADX'] = 0
+
+        # 3. Patrones de Velas
+        # Engulfing
+        self.velas['CDL_ENGULFING'] = ta.cdl_pattern(self.velas['open'], self.velas['high'], self.velas['low'], self.velas['close'], name="engulfing")
+        # Hammer
+        self.velas['CDL_HAMMER'] = ta.cdl_pattern(self.velas['open'], self.velas['high'], self.velas['low'], self.velas['close'], name="hammer")
+        # Shooting Star
+        self.velas['CDL_SHOOTING'] = ta.cdl_pattern(self.velas['open'], self.velas['high'], self.velas['low'], self.velas['close'], name="shootingstar")
+
+    def generar_senal(self):
+        """
+        Evalúa la última vela cerrada para decidir Compra/Venta.
+        """
+        if self.velas.empty: return "NEUTRO"
         
         try:
-            # 1. Recuperar valores clave de la última fila
-            last = df.iloc[-1]
+            # Última vela (la acabada de cerrar)
+            last = self.velas.iloc[-1]
             
-            # Chequeos de seguridad por si faltan columnas
-            if 'EMA_F' not in df.columns:
-                 # Si el FeatureEngine no calculó estas EMAs específicas, las calculamos al vuelo (menos eficiente pero robusto)
-                 # Idealmente usar FeatureEngine antes
-                 ema_f_series = ta.ema(df['close'], length=ema_fast)
-                 ema_s_series = ta.ema(df['close'], length=ema_slow)
-                 val_fast = ema_f_series.iloc[-1]
-                 val_slow = ema_s_series.iloc[-1]
-            else:
-                 val_fast = last['EMA_F']
-                 val_slow = last['EMA_S']
+            # Parámetros
+            adx_min = self.parametros.get('adx_minimo', 20)
             
-            val_adx = last.get('ADX', 0)
+            # Recuperar valores con manejo robusto de Nones
+            # Si last.get devuelve None, forzamos 0.0
+            val_fast = float(last.get('EMA_F') or 0.0)
+            val_slow = float(last.get('EMA_S') or 0.0)
+            val_adx = float(last.get('ADX') or 0.0)
             
-            # Patrones (FeatureEngine devuelve 100, -100 o 0)
-            engulfing = last.get('CDL_ENGULFING', 0)
-            hammer = last.get('CDL_HAMMER', 0)
-            shooting = last.get('CDL_SHOOTING', 0)
+            # Patrones (0, 100, -100)
+            engulfing = int(last.get('CDL_ENGULFING') or 0)
+            hammer = int(last.get('CDL_HAMMER') or 0)
+            shooting = int(last.get('CDL_SHOOTING') or 0)
 
             # ---------------- LOGICA LONG ----------------
             # Tendencia Alcista + ADX + (Engulfing Bull o Hammer)
@@ -61,7 +78,7 @@ class EstrategiaTrend_Candle(EstrategiaBase):
             # ---------------- LOGICA SHORT ----------------
             # Tendencia Bajista + ADX + (Engulfing Bear o Shooting Star)
             tendencia_bajista = val_fast < val_slow
-            patron_bear = (engulfing == -100) or (shooting == -100) # Shooting Star devuelve -100
+            patron_bear = (engulfing == -100) or (shooting == -100)
              
             if tendencia_bajista and fuerza and patron_bear:
                 return "VENTA"
@@ -69,5 +86,5 @@ class EstrategiaTrend_Candle(EstrategiaBase):
             return "NEUTRO"
 
         except Exception as e:
-            # print(f"Error EstrategiaTrend_Candle: {e}")
+            print(f"Error EstrategiaTrend_Candle: {e}")
             return "NEUTRO"

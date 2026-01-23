@@ -7,6 +7,9 @@ from Estrategias.Concretas.EstrategiaRSI_ADX import EstrategiaRSI_ADX
 from Estrategias.Concretas.EstrategiaBB import EstrategiaBB
 from Estrategias.Concretas.EstrategiaTrend import EstrategiaTrend
 
+from Estrategias.Concretas.EstrategiaTrend_Candle import EstrategiaTrend_Candle
+from Estrategias.Concretas.EstrategiaSqueeze_Momentum import EstrategiaSqueeze_Momentum
+
 class Selector:
     """
     FACTORY PATTERN: Centraliza la creación de estrategias.
@@ -18,7 +21,9 @@ class Selector:
         "EstrategiaRSI": EstrategiaRSI,
         "EstrategiaRSI_ADX": EstrategiaRSI_ADX,
         "EstrategiaBB": EstrategiaBB,
-        "EstrategiaTrend": EstrategiaTrend
+        "EstrategiaTrend": EstrategiaTrend,
+        "EstrategiaTrend_Candle": EstrategiaTrend_Candle,
+        "EstrategiaSqueeze_Momentum": EstrategiaSqueeze_Momentum
     }
 
     @staticmethod
