@@ -142,3 +142,259 @@ class FeatureEngine:
         df.fillna(0, inplace=True)
 
         return df
+
+    @staticmethod
+    def agregar_indicadores_estrategia(df: pd.DataFrame, estrategia: str, params: dict) -> pd.DataFrame:
+        """
+        Calcula indicadores Específicos según la estrategia seleccionada.
+        Centraliza la lógica para que TrainModel y otros scripts no tengan que saber detalles.
+        """
+        df = df.copy()
+
+        # 1. EstrategiaTrend
+        if estrategia == "EstrategiaTrend":
+            df['EMA_F'] = ta.ema(df['close'], length=params.get('ema_fast', 9))
+            df['EMA_S'] = ta.ema(df['close'], length=params.get('ema_slow', 21))
+            df['distancia_emas'] = (df['EMA_F'] - df['EMA_S']) / df['close']
+
+        # 2. EstrategiaBB (Breakout)
+        elif estrategia == "EstrategiaBB":
+            if 'bb_length' in params:
+                bb = ta.bbands(df['close'], length=params.get('bb_length', 20), std=params.get('bb_std', 2.0))
+                if bb is not None:
+                    col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+                    col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
+                    if col_u and col_l:
+                        df['dist_upper'] = df['close'] - bb[col_u]
+                        df['dist_lower'] = df['close'] - bb[col_l]
+        
+        # 3. EstrategiaRSI_ADX (Reversion)
+        elif estrategia == "EstrategiaRSI_ADX":
+            if 'rsi_periodo' in params:
+                df['RSI'] = ta.rsi(df['close'], length=params.get('rsi_periodo', 14)).fillna(50)
+                df['RSI_Slope'] = df['RSI'].diff(1)
+            
+            if 'adx_periodo' in params:
+                adx = ta.adx(df['high'], df['low'], df['close'], length=params.get('adx_periodo', 14))
+                if adx is not None:
+                     col_adx = next((c for c in adx.columns if c.startswith('ADX') and not c.startswith('ADX_') is False), None)
+                     if col_adx: df['ADX'] = adx[col_adx].fillna(0)
+
+        # 4. EstrategiaTrend_Candle
+        elif estrategia == "EstrategiaTrend_Candle":
+            df['EMA_F'] = ta.ema(df['close'], length=params.get('ema_fast', 20))
+            df['EMA_S'] = ta.ema(df['close'], length=params.get('ema_slow', 50))
+            df['distancia_emas'] = (df['EMA_F'] - df['EMA_S']) / df['close']
+            # Los patrones de velas ya vienen de generar_indicadores (base)
+        
+        # 5. EstrategiaSqueeze_Momentum
+        elif estrategia == "EstrategiaSqueeze_Momentum":
+            # FeatureEngine base ya tiene Lreg_Mom, RVOL. 
+            # Recalcular BB localmente para distancias exactas si params custom
+            bb = ta.bbands(df['close'], length=20, std=2.0)
+            col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+            col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
+            
+            if col_u and col_l:
+                df['dist_BBU'] = df['close'] - bb[col_u] 
+                df['dist_BBL'] = df['close'] - bb[col_l]
+            else:
+                df['dist_BBU'] = 0; df['dist_BBL'] = 0
+
+        # --- NUEVAS ESTRATEGIAS ---
+
+        # 6. EstrategiaSuperTrend
+        elif estrategia == "EstrategiaSuperTrend":
+            length = params.get('length', 10)
+            multiplier = params.get('multiplier', 3.0)
+            st = ta.supertrend(df['high'], df['low'], df['close'], length=length, multiplier=multiplier)
+            
+            if st is not None:
+                # Supertrend retorna: SUPERT_l_m.1, SUPERTd_l_m.1, SUPERTl_l_m.1, SUPERTs_l_m.1
+                # Queremos la linea principal y la dirección
+                col_st = next((c for c in st.columns if c.startswith('SUPERT_')), None)
+                col_dir = next((c for c in st.columns if c.startswith('SUPERTd_')), None)
+                
+                if col_st and col_dir:
+                    df['SuperTrend'] = st[col_st]
+                    df['ST_Direction'] = st[col_dir] # 1 Bull, -1 Bear
+                    # Feature útil: Distancia al precio
+                    df['Dist_SuperTrend'] = (df['close'] - df['SuperTrend']) / df['close']
+
+        # 7. EstrategiaMACD_ZeroLag (Usamos MACD normal como proxy o especifico)
+        elif estrategia == "EstrategiaMACD_ZeroLag":
+            fast = params.get('fast', 12)
+            slow = params.get('slow', 26)
+            signal = params.get('signal', 9)
+            
+            macd = ta.macd(df['close'], fast=fast, slow=slow, signal=signal)
+            if macd is not None:
+                col_macd = next((c for c in macd.columns if c.startswith('MACD_')), None)
+                col_sig = next((c for c in macd.columns if c.startswith('MACDs_')), None)
+                col_hist = next((c for c in macd.columns if c.startswith('MACDh_')), None)
+                
+                if col_macd: df['MACD_Line'] = macd[col_macd]
+                if col_sig: df['MACD_Signal'] = macd[col_sig]
+                if col_hist: df['MACD_Hist'] = macd[col_hist]
+
+        # 8. EstrategiaBollingerReversion (Mean Reversion)
+        elif estrategia == "EstrategiaBollingerReversion":
+            length = params.get('length', 20)
+            std = params.get('std', 2.0)
+            
+            bb = ta.bbands(df['close'], length=length, std=std)
+            if bb is not None:
+                col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+                col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
+                
+                if col_u and col_l:
+                    # Distancias relativas (Normalizadas por precio)
+                    df['Dist_BBU_Rel'] = (df['close'] - bb[col_u]) / df['close']
+                    df['Dist_BBL_Rel'] = (df['close'] - bb[col_l]) / df['close']
+                    df['BB_Width_Specific'] = (bb[col_u] - bb[col_l]) / bb[col_u]
+
+        df.fillna(0, inplace=True)
+        return df
+
+    @staticmethod
+    def generar_senal_estrategia(df: pd.DataFrame, estrategia: str, params: dict) -> pd.Series:
+        """
+        Genera una serie de Señales de Compra (1) y Venta (-1) basada en la estrategia.
+        Centraliza la lógica de decisión (IF/ELSE) para que Optimizer y Training usen la misma definición.
+        """
+        senal = pd.Series(0, index=df.index)
+        
+        # 1. EstrategiaTrend
+        if estrategia == "EstrategiaTrend":
+            if 'EMA_F' in df.columns:
+                ema_f = df['EMA_F']
+                ema_s = df['EMA_S']
+            else:
+                ema_f = ta.ema(df['close'], length=params.get('ema_fast', 9))
+                ema_s = ta.ema(df['close'], length=params.get('ema_slow', 21))
+                
+            adx = df['ADX'] if 'ADX' in df.columns else ta.adx(df['high'], df['low'], df['close'], length=14).iloc[:,0]
+            
+            mask_buy = (ema_f > ema_s) & (adx > params.get('adx_minimo', 20))
+            mask_sell = (ema_f < ema_s) & (adx > params.get('adx_minimo', 20))
+            
+            senal[mask_buy] = 1
+            senal[mask_sell] = -1
+
+        # 2. EstrategiaBB (Breakout)
+        elif estrategia == "EstrategiaBB":
+            if 'dist_upper' in df.columns:
+                mask_buy = df['dist_upper'] > 0 
+                mask_sell = df['dist_lower'] < 0 
+            else:
+                bb = ta.bbands(df['close'], length=params.get('bb_length', 20), std=params.get('bb_std', 2.0))
+                if bb is not None:
+                     col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+                     col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
+                     mask_buy = df['close'] > bb[col_u]
+                     mask_sell = df['close'] < bb[col_l]
+            
+            senal[mask_buy] = 1
+            senal[mask_sell] = -1
+
+        # 3. EstrategiaRSI_ADX (Reversion)
+        elif estrategia == "EstrategiaRSI_ADX":
+            rsi = df['RSI'] if 'RSI' in df.columns else ta.rsi(df['close'], length=14)
+            adx = df['ADX'] if 'ADX' in df.columns else ta.adx(df['high'], df['low'], df['close'], length=14).iloc[:,0]
+            
+            mask_buy = (rsi < params.get('rsi_sobreventa', 30)) & (adx > params.get('adx_minimo', 20))
+            mask_sell = (rsi > params.get('rsi_sobrecompra', 70)) & (adx > params.get('adx_minimo', 20))
+            
+            senal[mask_buy] = 1
+            senal[mask_sell] = -1
+
+        # 4. EstrategiaTrend_Candle
+        elif estrategia == "EstrategiaTrend_Candle":
+            if 'EMA_F' in df.columns:
+                ema_f = df['EMA_F']; ema_s = df['EMA_S']
+            else:
+                ema_f = ta.ema(df['close'], length=params.get('ema_fast', 20))
+                ema_s = ta.ema(df['close'], length=params.get('ema_slow', 50))
+            
+            adx = df['ADX']
+            patron_bull = (df['CDL_ENGULFING'] == 100) | (df['CDL_HAMMER'] == 100)
+            patron_bear = (df['CDL_ENGULFING'] == -100) | (df['CDL_SHOOTING'] == -100)
+            
+            mask_buy = (ema_f > ema_s) & (adx > params.get('adx_minimo', 20)) & patron_bull
+            mask_sell = (ema_f < ema_s) & (adx > params.get('adx_minimo', 20)) & patron_bear
+            
+            senal[mask_buy] = 1
+            senal[mask_sell] = -1
+        
+        # 5. EstrategiaSqueeze_Momentum
+        elif estrategia == "EstrategiaSqueeze_Momentum":
+            if 'dist_BBU' in df.columns:
+                 rompe_up = df['dist_BBU'] > 0
+                 rompe_down = df['dist_BBL'] < 0
+            else:
+                 bb = ta.bbands(df['close'], length=20, std=2.0)
+                 col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+                 col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
+                 rompe_up = df['close'] > bb[col_u]
+                 rompe_down = df['close'] < bb[col_l]
+            
+            mom = df['Lreg_Mom']
+            rvol = df['RVOL']
+            
+            mask_buy = rompe_up & (mom > 0) & (rvol > params.get('rvol_min', 1.2))
+            mask_sell = rompe_down & (mom < 0) & (rvol > params.get('rvol_min', 1.2))
+            
+            senal[mask_buy] = 1
+            senal[mask_sell] = -1
+
+        # 6. EstrategiaSuperTrend
+        elif estrategia == "EstrategiaSuperTrend":
+            if 'ST_Direction' in df.columns:
+                st_dir = df['ST_Direction']
+            else:
+                st = ta.supertrend(df['high'], df['low'], df['close'], length=params.get('length', 10), multiplier=params.get('multiplier', 3.0))
+                if st is not None:
+                     col_dir = next((c for c in st.columns if c.startswith('SUPERTd_')), None)
+                     st_dir = st[col_dir] if col_dir else pd.Series(0, index=df.index)
+                else: 
+                     st_dir = pd.Series(0, index=df.index)
+
+            shift_st = st_dir.shift(1).fillna(0)
+            mask_buy = (st_dir == 1) & (shift_st == -1)
+            mask_sell = (st_dir == -1) & (shift_st == 1)
+            
+            senal[mask_buy] = 1
+            senal[mask_sell] = -1
+
+        # 7. EstrategiaMACD_ZeroLag
+        elif estrategia == "EstrategiaMACD_ZeroLag":
+            if 'MACD_Line' in df.columns:
+                m_line = df['MACD_Line']
+                s_line = df['MACD_Signal']
+            else:
+                macd = ta.macd(df['close'], fast=params.get('fast',12), slow=params.get('slow',26), signal=params.get('signal',9))
+                col_m = next((c for c in macd.columns if c.startswith('MACD_')), None)
+                col_s = next((c for c in macd.columns if c.startswith('MACDs_')), None)
+                m_line = macd[col_m]; s_line = macd[col_s]
+            
+            mask_buy = (m_line > s_line) & (m_line.shift(1) <= s_line.shift(1))
+            mask_sell = (m_line < s_line) & (m_line.shift(1) >= s_line.shift(1))
+            
+            senal[mask_buy] = 1
+            senal[mask_sell] = -1
+
+        # 8. EstrategiaBollingerReversion
+        elif estrategia == "EstrategiaBollingerReversion":
+            bb = ta.bbands(df['close'], length=params.get('length', 20), std=params.get('std', 2.0))
+            if bb is not None:
+                col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
+                col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
+                
+                if col_u and col_l:
+                    mask_buy = df['close'] < bb[col_l]
+                    mask_sell = df['close'] > bb[col_u]
+                    
+                    senal[mask_buy] = 1
+                    senal[mask_sell] = -1
+
+        return senal

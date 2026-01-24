@@ -44,58 +44,14 @@ class GestorPrediccion:
 
     def _generar_features_dinamicas(self, df, estrategia_nombre, params):
         """
-        Delega el cálculo a FeatureEngine para mantener consistencia con el entrenamiento.
-        Añade features específicas de estrategia si es necesario.
+        Delega el cálculo a FeatureEngine para mantener consistencia 100% con el entrenamiento.
         """
         # 1. Indicadores Base (Centralizados)
         df = FeatureEngine.generar_indicadores(df)
         
-        # 2. Indicadores Específicos según la estrategia (Si se mantienen lógicas custom)
-        # Nota: Idealmente mover esto también a FeatureEngine o mantenerlo mínimo.
-        if estrategia_nombre == "EstrategiaTrend":
-            df['EMA_F'] = ta.ema(df['close'], length=params.get('ema_fast', 9))
-            df['EMA_S'] = ta.ema(df['close'], length=params.get('ema_slow', 21))
-            # Recalcular distancias si es necesario, OJO con sobreescribir lógica core
-            # df['distancia_emas'] = ... 
-            # (El código original calculaba distancia_emas aquí, lo dejamos por compatibilidad)
-            df['distancia_emas'] = (df['EMA_F'] - df['EMA_S']) / df['close']
-            
-        elif estrategia_nombre == "EstrategiaBB":
-            # Bollinger ya viene de FeatureEngine, pero si se usan params custom:
-            if 'bb_length' in params:
-                 bb = ta.bbands(df['close'], length=params['bb_length'], std=params.get('bb_std', 2.0))
-                 if bb is not None:
-                    col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
-                    col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
-                    if col_u and col_l:
-                        df['dist_upper'] = df['close'] - bb[col_u]
-                        df['dist_lower'] = df['close'] - bb[col_l]
+        # 2. Indicadores Específicos (Delegado a FeatureEngine)
+        df = FeatureEngine.agregar_indicadores_estrategia(df, estrategia_nombre, params)
         
-        elif estrategia_nombre == "EstrategiaRSI_ADX":
-             # Recalcular si los parámetros difieren del default (14)
-             if 'rsi_periodo' in params:
-                 df['RSI'] = ta.rsi(df['close'], length=params['rsi_periodo']).fillna(50)
-                 df['RSI_Slope'] = df['RSI'].diff(1)
-             
-             if 'adx_periodo' in params:
-                 adx = ta.adx(df['high'], df['low'], df['close'], length=params['adx_periodo'])
-                 if adx is not None:
-                     try:
-                         col_adx = [c for c in adx.columns if c.startswith('ADX') and not c.startswith('ADX_') is False][0]
-                         df['ADX'] = adx[col_adx].fillna(0)
-                         col_adx = [c for c in adx.columns if c.startswith('ADX') and not c.startswith('ADX_') is False][0]
-                         df['ADX'] = adx[col_adx].fillna(0)
-                     except: pass
-        
-        elif estrategia_nombre == "EstrategiaTrend_Candle":
-             df['EMA_F'] = ta.ema(df['close'], length=params.get('ema_fast', 20))
-             df['EMA_S'] = ta.ema(df['close'], length=params.get('ema_slow', 50))
-             df['distancia_emas'] = (df['EMA_F'] - df['EMA_S']) / df['close']
-
-        elif estrategia_nombre == "EstrategiaSqueeze_Momentum":
-             pass # Usa defaults del FeatureEngineering
-        
-        df.fillna(0, inplace=True)
         return df
 
     def predecir_exito(self, simbolo, df_velas, config_par):
@@ -121,9 +77,12 @@ class GestorPrediccion:
             return True 
 
         try:
-            # 2. Leer Umbral
+            # 2. Leer Umbral (PRIORIDAD: Específico > Global)
             full_conf = Config.cargar_configuracion()
-            umbral_config = full_conf.get('sistema_riesgo', {}).get('ml_threshold', 0.65)
+            global_threshold = full_conf.get('sistema_riesgo', {}).get('ml_threshold', 0.65)
+            
+            # Buscamos si el par tiene un umbral específico override
+            umbral_config = config_par.get('ml_threshold', global_threshold)
 
             # 3. Generar Features (IGUAL QUE EN ENTRENAMIENTO)
             df_features = self._generar_features_dinamicas(df_velas, estrategia_nombre, params)

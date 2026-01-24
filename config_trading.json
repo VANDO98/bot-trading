@@ -43,198 +43,210 @@
   "pares": {
     "BTC/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaSuperTrend",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 15,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "length": 14,
+        "multiplier": 3.0
+      },
+      "ml_threshold": 0.4
     },
     "ETH/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaSuperTrend",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "length": 10,
+        "multiplier": 2.0
+      },
+      "ml_threshold": 0.4
     },
     "BNB/USDT": {
+      "activo": true,
+      "estrategia": "EstrategiaSuperTrend",
+      "cantidad_operacion": "10%",
+      "timeframe": "1h",
+      "apalancamiento": 15,
+      "parametros_estrategia": {
+        "length": 14,
+        "multiplier": 3.0
+      },
+      "ml_threshold": 0.4
+    },
+    "SOL/USDT": {
+      "activo": true,
+      "estrategia": "EstrategiaSuperTrend",
+      "cantidad_operacion": "10%",
+      "timeframe": "1h",
+      "apalancamiento": 10,
+      "parametros_estrategia": {
+        "length": 14,
+        "multiplier": 3.0
+      },
+      "ml_threshold": 0.4
+    },
+    "XRP/USDT": {
       "activo": true,
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
-      "apalancamiento": 15,
+      "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 25,
         "rsi_sobrecompra": 75,
-        "adx_minimo": 20
-      }
-    },
-    "SOL/USDT": {
-      "activo": true,
-      "estrategia": "EstrategiaRSI_ADX",
-      "cantidad_operacion": "10%",
-      "timeframe": "1h",
-      "apalancamiento": 10,
-      "parametros_estrategia": {
-        "rsi_periodo": 14,
-        "rsi_sobreventa": 25,
-        "rsi_sobrecompra": 70,
         "adx_minimo": 25
-      }
-    },
-    "XRP/USDT": {
-      "activo": true,
-      "estrategia": "EstrategiaTrend",
-      "cantidad_operacion": "10%",
-      "timeframe": "1h",
-      "apalancamiento": 10,
-      "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 50,
-        "adx_minimo": 20
-      }
+      },
+      "ml_threshold": 0.6
     },
     "ADA/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaSuperTrend",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "length": 14,
+        "multiplier": 2.0
+      },
+      "ml_threshold": 0.4
     },
     "DOGE/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaSuperTrend",
       "cantidad_operacion": "5%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "length": 10,
+        "multiplier": 3.0
+      },
+      "ml_threshold": 0.4
     },
     "AVAX/USDT": {
-      "activo": true,
-      "estrategia": "EstrategiaTrend",
-      "cantidad_operacion": "10%",
-      "timeframe": "1h",
-      "apalancamiento": 10,
-      "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 50,
-        "adx_minimo": 20
-      }
-    },
-    "LINK/USDT": {
-      "activo": true,
-      "estrategia": "EstrategiaTrend",
-      "cantidad_operacion": "10%",
-      "timeframe": "1h",
-      "apalancamiento": 10,
-      "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 50,
-        "adx_minimo": 20
-      }
-    },
-    "LTC/USDT": {
       "activo": true,
       "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
-      "apalancamiento": 15,
+      "apalancamiento": 10,
       "parametros_estrategia": {
         "rsi_periodo": 14,
         "rsi_sobreventa": 25,
         "rsi_sobrecompra": 75,
         "adx_minimo": 25
-      }
+      },
+      "ml_threshold": 0.55
+    },
+    "LINK/USDT": {
+      "activo": true,
+      "estrategia": "EstrategiaSuperTrend",
+      "cantidad_operacion": "10%",
+      "timeframe": "1h",
+      "apalancamiento": 10,
+      "parametros_estrategia": {
+        "length": 14,
+        "multiplier": 3.0
+      },
+      "ml_threshold": 0.45
+    },
+    "LTC/USDT": {
+      "activo": true,
+      "estrategia": "EstrategiaSuperTrend",
+      "cantidad_operacion": "10%",
+      "timeframe": "1h",
+      "apalancamiento": 15,
+      "parametros_estrategia": {
+        "length": 10,
+        "multiplier": 2.0
+      },
+      "ml_threshold": 0.45
     },
     "DOT/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 30,
+        "rsi_sobrecompra": 75,
+        "adx_minimo": 25
+      },
+      "ml_threshold": 0.55
     },
     "ATOM/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaMACD_ZeroLag",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "fast": 12,
+        "slow": 26,
+        "signal": 9
+      },
+      "ml_threshold": 0.55
     },
     "NEAR/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 200,
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 75,
         "adx_minimo": 20
-      }
+      },
+      "ml_threshold": 0.65
     },
     "ZEC/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 200,
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 30,
+        "rsi_sobrecompra": 75,
         "adx_minimo": 20
-      }
+      },
+      "ml_threshold": 0.8
     },
     "POL/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 200,
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 75,
         "adx_minimo": 20
-      }
+      },
+      "ml_threshold": 0.6
     },
     "FET/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
       "timeframe": "1h",
       "apalancamiento": 5,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 200,
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 75,
         "adx_minimo": 20
-      }
+      },
+      "ml_threshold": 0.75
     },
     "RENDER/USDT": {
       "activo": true,
@@ -244,154 +256,169 @@
       "apalancamiento": 5,
       "parametros_estrategia": {
         "rsi_periodo": 14,
-        "rsi_sobreventa": 30,
-        "rsi_sobrecompra": 70,
-        "adx_minimo": 20
-      }
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 75,
+        "adx_minimo": 25
+      },
+      "ml_threshold": 0.65
     },
     "1000PEPE/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaSuperTrend",
       "cantidad_operacion": "5%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "length": 14,
+        "multiplier": 3.0
+      },
+      "ml_threshold": 0.4
     },
     "1000SHIB/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 200,
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 75,
         "adx_minimo": 20
-      }
+      },
+      "ml_threshold": 0.5
     },
     "SUI/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaSuperTrend",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "length": 10,
+        "multiplier": 3.0
+      },
+      "ml_threshold": 0.4
     },
     "ARB/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaMACD_ZeroLag",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 50,
-        "adx_minimo": 20
-      }
+        "fast": 12,
+        "slow": 26,
+        "signal": 9
+      },
+      "ml_threshold": 0.55
     },
     "OP/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 200,
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 75,
         "adx_minimo": 20
-      }
+      },
+      "ml_threshold": 0.65
     },
     "APT/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaSuperTrend",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "length": 14,
+        "multiplier": 3.0
+      },
+      "ml_threshold": 0.55
     },
     "WLD/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 70,
+        "adx_minimo": 25
+      },
+      "ml_threshold": 0.5
     },
     "WIF/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
-      "timeframe": "15m",
+      "timeframe": "1h",
       "apalancamiento": 8,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 75,
+        "adx_minimo": 25
+      },
+      "ml_threshold": 0.55
     },
     "BCH/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaMACD_ZeroLag",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "fast": 12,
+        "slow": 26,
+        "signal": 9
+      },
+      "ml_threshold": 0.4
     },
     "SEI/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaSuperTrend",
       "cantidad_operacion": "5%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 200,
-        "adx_minimo": 20
-      }
+        "length": 14,
+        "multiplier": 2.0
+      },
+      "ml_threshold": 0.55
     },
     "TAO/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "5%",
       "timeframe": "1h",
       "apalancamiento": 5,
       "parametros_estrategia": {
-        "ema_fast": 9,
-        "ema_slow": 50,
-        "adx_minimo": 20
-      }
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 75,
+        "adx_minimo": 25
+      },
+      "ml_threshold": 0.65
     },
     "UNI/USDT": {
       "activo": true,
-      "estrategia": "EstrategiaTrend_Candle",
+      "estrategia": "EstrategiaRSI_ADX",
       "cantidad_operacion": "10%",
       "timeframe": "1h",
       "apalancamiento": 10,
       "parametros_estrategia": {
-        "ema_fast": 20,
-        "ema_slow": 200,
+        "rsi_periodo": 14,
+        "rsi_sobreventa": 25,
+        "rsi_sobrecompra": 75,
         "adx_minimo": 25
-      }
+      },
+      "ml_threshold": 0.6
     }
   }
 }

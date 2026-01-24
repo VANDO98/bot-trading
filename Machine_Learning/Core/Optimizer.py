@@ -22,37 +22,42 @@ TIMEFRAMES_COMPETENCIA = ["5m", "15m", "1h"]
 # --- GRID (Igual que antes) ---
 # GRID AMPLIADO
 GRID_PARAMETROS = {
+    # --- ESTRATEGIAS EXISTENTES ---
     "EstrategiaRSI_ADX": {
         "rsi_periodo": [14],
         "rsi_sobreventa": [25, 30],
         "rsi_sobrecompra": [70, 75],
         "adx_minimo": [20, 25]
     },
-    "EstrategiaBB": {
+    "EstrategiaBB": { # Bollinger Breakout
         "bb_length": [20],
         "bb_std": [2.0, 2.5]
     },
-    "EstrategiaTrend": {
+    "EstrategiaTrend": { # Cruce EMAs
         "ema_fast": [9, 20],
         "ema_slow": [50, 200],
         "adx_minimo": [20]
     },
-    # NUEVAS ESTRATEGIAS
-    "EstrategiaTrend_Candle": {
-        "ema_fast": [20, 50],
-        "ema_slow": [50, 200],
-        "adx_minimo": [20, 25] # Requiere ADX fuerte y Patrón
+    # --- NUEVAS ESTRATEGIAS ---
+    "EstrategiaSuperTrend": {
+        "length": [10, 14],
+        "multiplier": [2.0, 3.0]
     },
-    "EstrategiaSqueeze_Momentum": {
-        "mult_kc": [1.5], # Defecto squeeze
-        "rvol_min": [1.2, 1.5]
+    "EstrategiaMACD_ZeroLag": {
+        "fast": [12],
+        "slow": [26],
+        "signal": [9]
+    },
+    "EstrategiaBollingerReversion": { # Mean Reversion
+        "length": [20],
+        "std": [2.0, 2.5]
     }
 }
 
-# Import relativo
 import sys
 sys.path.append(os.path.join(BASE_DIR, "..", "..")) # Root
 from Core.Utils.FeatureEngine import FeatureEngine
+from Machine_Learning.Core.DataProcessor import simular_estrategia_real
 
 def cargar_config():
     with open(CONFIG_PATH, 'r') as f: return json.load(f)
@@ -67,92 +72,26 @@ def generar_combinaciones(nombre_estrategia):
     return [dict(zip(keys, v)) for v in itertools.product(*values)]
 
 def simular_estrategia(df, nombre_estrategia, params):
-    # Usamos FeatureEngine para calcular TODOS los indicadores de una vez
-    # Esto incluye Patrones, LinReg, etc.
-    df = FeatureEngine.generar_indicadores(df)
-    
-    # Rellenar NaNs tras cálculo
-    df.fillna(0, inplace=True)
+    # NOTA: df ya viene con FeatureEngine y Targets calculados desde fuera
     
     df['senal'] = 0 
     
-    if nombre_estrategia == "EstrategiaRSI_ADX":
-        # Recalculo específico si params custom
-        rsi = ta.rsi(df['close'], length=params.get('rsi_periodo', 14)).fillna(50)
-        adx = df['ADX'] # Ya viene del FeatureEngine (std 14)
-        
-        mask_buy = (rsi < params['rsi_sobreventa']) & (adx > params['adx_minimo'])
-        mask_sell = (rsi > params['rsi_sobrecompra']) & (adx > params['adx_minimo'])
-        df.loc[mask_buy, 'senal'] = 1
-        df.loc[mask_sell, 'senal'] = -1
-
-    elif nombre_estrategia == "EstrategiaBB":
-        # FeatureEngine da BB std 2. Si grid pide 2.5, recalculamos
-        bb = ta.bbands(df['close'], length=params['bb_length'], std=params['bb_std'])
-        if bb is not None:
-            col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
-            col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
-            if col_u and col_l:
-                df.loc[df['close'] > bb[col_u], 'senal'] = 1 # Rompe arriba (Momentum)
-                df.loc[df['close'] < bb[col_l], 'senal'] = -1 # Rompe abajo
-
-    elif nombre_estrategia == "EstrategiaTrend":
-        if params['ema_fast'] >= params['ema_slow']: return -9999
-        # Recalcular EMAs según grid
-        ema_f = ta.ema(df['close'], length=params['ema_fast'])
-        ema_s = ta.ema(df['close'], length=params['ema_slow'])
-        adx = df['ADX']
-        adx_min = params.get('adx_minimo', 20)
-        
-        mask_buy = (ema_f > ema_s) & (adx > adx_min)
-        mask_sell = (ema_f < ema_s) & (adx > adx_min)
-        df.loc[mask_buy, 'senal'] = 1
-        df.loc[mask_sell, 'senal'] = -1
-
-    # --- NUEVAS ---
-    elif nombre_estrategia == "EstrategiaTrend_Candle":
-        if params['ema_fast'] >= params['ema_slow']: return -9999
-        ema_f = ta.ema(df['close'], length=params['ema_fast'])
-        ema_s = ta.ema(df['close'], length=params['ema_slow'])
-        adx = df['ADX']
-        
-        # Patrones (FeatureEngine ya los calculó: 100/-100)
-        patron_bull = (df['CDL_ENGULFING'] == 100) | (df['CDL_HAMMER'] == 100)
-        patron_bear = (df['CDL_ENGULFING'] == -100) | (df['CDL_SHOOTING'] == -100)
-        
-        mask_buy = (ema_f > ema_s) & (adx > params['adx_minimo']) & patron_bull
-        mask_sell = (ema_f < ema_s) & (adx > params['adx_minimo']) & patron_bear
-        
-        df.loc[mask_buy, 'senal'] = 1
-        df.loc[mask_sell, 'senal'] = -1
-        
-    elif nombre_estrategia == "EstrategiaSqueeze_Momentum":
-        # FeatureEngine ya tiene KC, Lreg_Mom, RVOL
-        # Requisito: Bollinger fuera de KC (Disparo) + Momentum Alineado
-        
-        # Calcular BB localmente para asegurar existencia
-        bb = ta.bbands(df['close'], length=20, std=2.0)
-        col_u = next((c for c in bb.columns if c.startswith('BBU')), None)
-        col_l = next((c for c in bb.columns if c.startswith('BBL')), None)
-        
-        if col_u and col_l:
-            bb_u = bb[col_u]
-            bb_l = bb[col_l]
-            mom = df['Lreg_Mom']
-            rvol = df['RVOL']
-            
-            mask_long = (df['close'] > bb_u) & (mom > 0) & (rvol > params['rvol_min'])
-            mask_short = (df['close'] < bb_l) & (mom < 0) & (rvol > params['rvol_min'])
-            
-            df.loc[mask_long, 'senal'] = 1
-            df.loc[mask_short, 'senal'] = -1
-
-    else: return -999
-
-    df['posicion'] = df['senal'].shift(1).fillna(0)
-    df['retorno_mercado'] = df['close'].pct_change().fillna(0)
-    df['retorno_neto'] = (df['posicion'] * df['retorno_mercado']) - (df['posicion'].diff().abs() * COMISION)
-    return df['retorno_neto'].sum() * 100
+    # 2. Generar Señales (Lógica Vectorizada)
+    # 2. Generar Señales (Lógica Vectorizada Centralizada)
+    df['senal'] = FeatureEngine.generar_senal_estrategia(df, nombre_estrategia, params)
+    
+    # 3. Calcular WIN RATE usando lógica de Etiquetado Real
+    # df ya tiene la columna 'TARGET' calculada en el bucle principal
+    
+    # 4. Filtrar solo las velas donde hubo señal
+    señales = df[df['senal'] != 0]
+    
+    total_ops = len(señales)
+    if total_ops < 5: return -999 # Descartar si opera muy poco
+    
+    win_rate = (señales['TARGET'].sum() / total_ops) * 100
+    
+    return win_rate
 
 import argparse
 
@@ -168,7 +107,7 @@ def main():
     cambios_pendientes = []
     
     print("-" * 140)
-    print(f"{'PAR':<10} | {'ESTRATEGIA GANADORA':<30} | {'SCORE':<8} | {'ESTADO'}")
+    print(f"{'PAR':<10} | {'ESTRATEGIA GANADORA':<30} | {'WR (%)':<8} | {'ESTADO'}")
     print("-" * 140)
 
     for par, cfg in pares_config.items():
@@ -198,6 +137,15 @@ def main():
                 
                 if not df.empty:
                     datos_encontrados = True
+                    
+                # --- OPTIMIZACIÓN: Pre-calcular Feature Engineering y Targets ---
+                # Calculamos esto UNA VEZ por par/tf, no por cada estrategia
+                df = FeatureEngine.generar_indicadores(df)
+                df.fillna(0, inplace=True)
+                
+                # Calculamos el "Ground Truth" (TARGET) una sola vez
+                # Esto define si cada vela ERA una oportunidade ganadora (independiente de la estrategia)
+                df = simular_estrategia_real(df)
 
             except Exception as e: 
                 print(f"DEBUG ERROR leyendo {par}: {e}")
@@ -207,7 +155,8 @@ def main():
                 combinaciones = generar_combinaciones(estrategia)
                 for params in combinaciones:
                     try:
-                        score = simular_estrategia(df, estrategia, params)
+                        # Pasamos el DF ya procesado
+                        score = simular_estrategia(df.copy(), estrategia, params)
                         if score > mejor_score_par:
                             mejor_score_par = score
                             mejor_config_par = {
@@ -242,7 +191,7 @@ def main():
                 print(f"{Fore.RED}{par:<10} | {'SIN DATOS (Archivo no encontrado)':<30} | ---")
             else:
                 score_str = f"{mejor_score_par:.1f}%" if mejor_score_par > -9000 else "---"
-                print(f"{Fore.YELLOW}{par:<10} | {'BAJO RENDIMIENTO / PÉRDIDAS':<30} | {score_str}")
+                print(f"{Fore.YELLOW}{par:<10} | {'BAJO WR / PÉRDIDAS':<30} | {score_str}")
 
     # --- RESUMEN Y CONFIRMACIÓN ---
     if not cambios_pendientes:
