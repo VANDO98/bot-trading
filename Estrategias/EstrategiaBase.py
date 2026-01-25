@@ -43,11 +43,15 @@ class EstrategiaBase(ABC):
                 if nueva_fila['timestamp'] > ultimo_time:
                     # CASO A: Es una vela nueva -> Concatenamos
                     self.velas = pd.concat([self.velas, df_nuevo], ignore_index=True)
+                    self.velas.reset_index(drop=True, inplace=True) # [FIX] Forzar índice único 0..N
                 else:
                     # CASO B: Es la misma vela actualizándose (Intrabarra) -> Update Rápido
-                    # Usamos los índices directos para mayor velocidad que iterar columnas
-                    idx = self.velas.index[-1]
-                    self.velas.loc[idx, ['open', 'high', 'low', 'close', 'volume']] = [
+                    # Usamos iloc para evitar errores con índices duplicados
+                    # -1 es la última fila (la que acabamos de validar)
+                    # Columnas: open(1), high(2), low(3), close(4), volume(5) 
+                    # NOTA: Asegurarse de que el orden de columnas en self.velas coincide con esta asignación
+                    
+                    self.velas.iloc[-1, self.velas.columns.get_indexer(['open', 'high', 'low', 'close', 'volume'])] = [
                         nueva_fila['open'], nueva_fila['high'], nueva_fila['low'], 
                         nueva_fila['close'], nueva_fila['volume']
                     ]

@@ -9,7 +9,7 @@ class MLLogger:
     ARCHIVO_LOG = os.path.join(ROOT_DIR, "Machine_Learning", "Logs", "historial_ml.csv")
 
     @staticmethod
-    def registrar_prediccion(par, probabilidad, umbral, resultado, input_features=None):
+    def registrar_prediccion(par, probabilidad, umbral, resultado, input_features=None, direccion="UNKNOWN"):
         """
         Guarda cada consulta al modelo en un CSV dentro de Machine_Learning/.
         """
@@ -22,7 +22,7 @@ class MLLogger:
                 
                 # Encabezados si es archivo nuevo
                 if not existe:
-                    writer.writerow(["Fecha", "Par", "Probabilidad", "Umbral_Config", "Resultado", "Detalles_Extra"])
+                    writer.writerow(["Fecha", "Par", "Direccion", "Probabilidad", "Umbral_Config", "Resultado", "Detalles_Extra"])
                 
                 # Datos a guardar
                 fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -39,7 +39,7 @@ class MLLogger:
                     except:
                         pass
 
-                writer.writerow([fecha, par, f"{probabilidad:.4f}", umbral, estado, detalles])
+                writer.writerow([fecha, par, direccion, f"{probabilidad:.4f}", umbral, estado, detalles])
                 
         except Exception as e:
             print(f"⚠️ Error escribiendo log ML: {e}")

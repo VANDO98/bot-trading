@@ -535,7 +535,8 @@ class BotController:
             ml_aprueba = self.gestor_prediccion.predecir_exito(
                 simbolo, 
                 estrategia.velas.copy(),
-                cfg_par 
+                cfg_par,
+                senal  # Pasar la señal COMPRA/VENTA
             )
             
             if not ml_aprueba:

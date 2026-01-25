@@ -24,7 +24,20 @@ def detectar_venv():
             print(f"{Fore.GREEN}🐍 Venv detectado: {venv_dir}")
             return python_path, venv_path
     
-    print(f"{Fore.YELLOW}⚠️ No se encontró venv. Usando Python del sistema: {sys.executable}")
+    print(f"{Fore.YELLOW}⚠️ No se encontró venv. Creando uno nuevo en .venv...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "venv", ".venv"])
+        print(f"{Fore.GREEN}✅ Entorno virtual creado exitosamente.")
+        
+        venv_path = os.path.join(base_dir, ".venv")
+        python_path = os.path.join(venv_path, "bin", "python")
+        
+        if os.path.exists(python_path):
+             return python_path, venv_path
+    except Exception as e:
+        print(f"{Fore.RED}❌ Error creando venv: {e}")
+    
+    print(f"{Fore.YELLOW}⚠️ Fallo al crear venv. Usando Python del sistema: {sys.executable}")
     return sys.executable, None
 
 def verificar_requirements(python_executable, venv_path):
@@ -43,29 +56,32 @@ def verificar_requirements(python_executable, venv_path):
         print(f"{Fore.CYAN}📦 Verificando dependencias...")
         
         # Ejecutar pip install para asegurar que todo esté actualizado
-        # Usamos --quiet para no saturar la consola
-        result = subprocess.run(
-            [python_executable, '-m', 'pip', 'install', '-q', '-r', requirements_file],
-            capture_output=True,
-            text=True,
-            timeout=120  # 2 minutos máximo
+        # Ejecutamos pip install mostrando output para que el usuario vea progreso
+        # Eliminamos -q para ver qué pasa si tarda
+        print(f"{Fore.CYAN}⏳ Instalando/verificando paquetes (esto puede tardar unos minutos)...")
+        
+        # Usamos check_call para ver el output en tiempo real y morir si falla
+        # No capturamos output para que se vea en la consola directamente
+        subprocess.check_call(
+            [python_executable, '-m', 'pip', 'install', '-r', requirements_file],
+            timeout=300  # 5 minutos
         )
         
-        if result.returncode == 0:
-            print(f"{Fore.GREEN}✅ Dependencias verificadas y actualizadas.")
-            return True
-        else:
-            print(f"{Fore.RED}❌ Error instalando dependencias:")
-            print(result.stderr)
-            return False
-            
+        print(f"{Fore.GREEN}✅ Dependencias verificadas y actualizadas.")
+        return True
+        
     except subprocess.TimeoutExpired:
-        print(f"{Fore.YELLOW}⚠️ La instalación de dependencias tardó demasiado. Continuando...")
-        return True
+        print(f"{Fore.RED}❌ La instalación de dependencias tardó demasiado (TIMEOUT 300s).")
+        print(f"{Fore.YELLOW}💡 Intenta ejecutar manualmente: {python_executable} -m pip install -r requirements.txt")
+        return False
+        
+    except subprocess.CalledProcessError as e:
+        print(f"{Fore.RED}❌ Error instalando dependencias (Código {e.returncode}).")
+        return False
+            
     except Exception as e:
-        print(f"{Fore.YELLOW}⚠️ Error verificando requirements: {e}")
-        print(f"{Fore.YELLOW}Continuando de todas formas...")
-        return True
+        print(f"{Fore.RED}⚠️ Error inesperado verificando requirements: {e}")
+        return False
 
 def run_bot():
     """

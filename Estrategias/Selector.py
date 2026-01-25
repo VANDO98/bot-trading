@@ -9,6 +9,8 @@ from Estrategias.Concretas.EstrategiaTrend import EstrategiaTrend
 
 from Estrategias.Concretas.EstrategiaTrend_Candle import EstrategiaTrend_Candle
 from Estrategias.Concretas.EstrategiaSqueeze_Momentum import EstrategiaSqueeze_Momentum
+from Estrategias.Concretas.EstrategiaSuperTrend import EstrategiaSuperTrend
+from Estrategias.Concretas.EstrategiaMACD_ZeroLag import EstrategiaMACD_ZeroLag
 
 class Selector:
     """
@@ -23,7 +25,9 @@ class Selector:
         "EstrategiaBB": EstrategiaBB,
         "EstrategiaTrend": EstrategiaTrend,
         "EstrategiaTrend_Candle": EstrategiaTrend_Candle,
-        "EstrategiaSqueeze_Momentum": EstrategiaSqueeze_Momentum
+        "EstrategiaSqueeze_Momentum": EstrategiaSqueeze_Momentum,
+        "EstrategiaSuperTrend": EstrategiaSuperTrend,
+        "EstrategiaMACD_ZeroLag": EstrategiaMACD_ZeroLag
     }
 
     @staticmethod

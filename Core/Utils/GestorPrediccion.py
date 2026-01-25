@@ -54,7 +54,7 @@ class GestorPrediccion:
         
         return df
 
-    def predecir_exito(self, simbolo, df_velas, config_par):
+    def predecir_exito(self, simbolo, df_velas, config_par, direccion="UNKNOWN"):
         """
         Método principal actualizado.
         Requiere 'config_par' para saber timeframe y parámetros.
@@ -113,7 +113,7 @@ class GestorPrediccion:
             print(f"{color}{icono} ML {simbolo} ({timeframe}): Confianza {probabilidad:.1%} (Req: {umbral_config:.1%}) -> {'SI' if es_aprobado else 'NO'}")
             
             # Registrar
-            MLLogger.registrar_prediccion(simbolo, probabilidad, umbral_config, es_aprobado, ultima_fila)
+            MLLogger.registrar_prediccion(simbolo, probabilidad, umbral_config, es_aprobado, ultima_fila, direccion)
 
             return es_aprobado
 

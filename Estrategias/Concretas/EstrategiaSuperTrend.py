@@ -25,6 +25,11 @@ class EstrategiaSuperTrend(EstrategiaBase):
             st = ta.supertrend(self.velas['high'], self.velas['low'], self.velas['close'], length=length, multiplier=multiplier)
             
             if st is not None:
+                # [FIX] Evitar acumulación infinita de columnas y duplicados
+                cols_to_drop = [c for c in self.velas.columns if c in st.columns or c == 'ST_DIR']
+                if cols_to_drop:
+                    self.velas.drop(columns=cols_to_drop, inplace=True)
+
                 # Concatenamos al df principal para tenerlo disponible
                 self.velas = pd.concat([self.velas, st], axis=1)
                 
