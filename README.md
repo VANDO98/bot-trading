@@ -1,64 +1,45 @@
-# 🤖 Bot de Trading Algorítmico - Evolución ML (v3.0)
+# 🤖 Bot de Trading Algorítmico - Shadow Evolution (v3.5)
 
-> Sistema de trading autónomo para Binance Futures con Machine Learning, arquitectura híbrida, gestión de riesgo avanzada y toma de ganancias escalonada.
+> Sistema de trading autónomo para Binance Futures con Machine Learning, arquitectura híbrida, gestión de riesgo avanzada y **Sistema de Auto-Aprendizaje (Shadow Trading)**.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![Binance API](https://img.shields.io/badge/Binance-Futures-yellow.svg)
 ![Status](https://img.shields.io/badge/Estado-Producción-green.svg)
-![ML](https://img.shields.io/badge/ML-Random_Forest-orange.svg)
+![ML](https://img.shields.io/badge/ML-Self_Learning-purple.svg)
+![DB](https://img.shields.io/badge/SQLite-Shadow_DB-lightgrey.svg)
 
 ---
 
 ## 🎯 Filosofía del Sistema
 
-El bot está diseñado para **maximizar ganancias en tendencias fuertes** mientras protege el capital:
+El bot ha evolucionado de un simple ejecutor de reglas a un sistema que **aprende de sus propios errores**:
 
-- **Entrada Inteligente**: Doble filtro (Análisis Técnico + Machine Learning)
-- **Salida Progresiva**: Sistema de TPs escalonados para capturar movimientos explosivos
-- **Protección Dinámica**: Trailing Stop + Auto Break-Even
-- **Adaptabilidad**: Cambia entre modos según volatilidad del mercado
+- **Filtro ML**: Random Forest valida cada señal técnica antes de ejecutar.
+- **Shadow Mode**: Si el ML rechaza una operación, el sistema la "opera en la sombra" (sin dinero).
+- **Shadow Judge**: Un juez imparcial analiza después si el rechazo fue correcto o un error (Oportunidad Perdida).
+- **Auto-Tuner**: El bot ajusta su propia sensibilidad (umbral de miedo) basándose en el veredicto del juez.
 
 ---
 
 ## ✨ Características Principales
 
-### 🧠 Machine Learning (Random Forest)
-- **Filtro de Entrada**: El modelo ML valida cada señal técnica antes de ejecutar
-- **Entrenamiento Continuo**: Aprende de operaciones pasadas
-- **Umbral Configurable**: Control de sensibilidad (default: 80% confianza)
+### 🧠 Shadow Trading (Nuevo en v3.5)
+El ciclo de mejora continua está 100% automatizado:
+1.  **Data Collection**: `ShadowLogger` guarda rechazos en una base de datos SQLite segura.
+2.  **Analysis**: `ShadowJudge` viaja al futuro (simulación) para ver qué pasó con esas operaciones rechazadas. Evalúa éxito según ROE y Apalancamiento.
+3.  **Optimization**: `AutoTuner` calcula la tasa de error (FNR).
+    - Si rechaza demasiadas buenas -> **Baja el umbral**.
+    - Si acepta demasiada basura -> **Sube el umbral**.
 
 ### 🪜 Toma de Ganancias Escalonada (Ladder TP)
 Dos modos disponibles:
-
-#### **Modo Simple** (por defecto)
-- Venta única al alcanzar 20% ROE
-- 50% de la posición cerrada
-- Resto protegido por Trailing Stop
-
-#### **Modo Escalera** (`tp_escalonados.activo: true`)
-- **Nivel 1**: ROE 20% → Vende 30%
-- **Nivel 2**: ROE 40% → Vende 35%
-- **Nivel 3**: ROE 80% → Vende 67%
-- **Resultado**: Deja 15% corriendo indefinidamente
-- **Ventaja**: 4x más ganancia en tendencias fuertes vs. modo simple
+- **Modo Simple**: Venta única al 20% ROE (50% posición).
+- **Modo Escalera**: Ventas parciales progresivas (20% -> 30%, 40% -> 35%, 80% -> 67%). Deja correr ganancias en tendencias fuertes.
 
 ### 🛡️ Protección Avanzada
-
-#### Auto Break-Even
-- Se activa automáticamente después del primer TP escalonado
-- Solo mueve el SL si mejora la protección actual
-- Elimina riesgo de pérdida garantizando entrada + 0.5%
-
-#### Trailing Stop Híbrido
-- **Gatillo Doble**: Al cierre de vela O cada 15 minutos
-- **Break-Even**: Activa al 7% ROE (Risk Shield a -0.5%)
-- **Trailing Dinámico**: Activa al 10% ROE usando ATR (2x)
-- **Validación Periódica**: Ghost Buster cada 5 minutos
-
-#### Ejecución Blindada
-- **Cancel & Replace**: Supera limitaciones de Binance API
-- **Rollback de Emergencia**: Restaura SL anterior si falla actualización
-- **Sincronización Automática**: Repara órdenes huérfanas
+- **Auto Break-Even**: Se activa automáticamente para proteger la entrada (+0.5%).
+- **Trailing Stop Híbrido**: Gatilla por cierre de vela O por tiempo (15 min), ajustado por ATR y Volatilidad.
+- **Ejecución Blindada**: Mecanismos de `Rollback`, `Ghost Buster` (limpieza de órdenes fantasma) y Sincronización automática.
 
 ---
 
@@ -67,158 +48,82 @@ Dos modos disponibles:
 ```
 bot-trading/
 ├── Core/
-│   ├── API/                  # RESTful + WebSocket híbrido
-│   ├── Ejecucion/
-│   │   ├── GestorEjecucion.py       # Motor real (Binance)
-│   │   └── GestorEjecucionPaper.py  # Simulador (Paper Trading)
-│   ├── Interfaz/Telegram/    # Bot de notificaciones
+│   ├── API/                  # WebSocket Manager
+│   ├── Ejecucion/            # Motores (Real y Paper)
 │   ├── Utils/
-│   │   ├── GestorPrediccion.py      # ML Engine
-│   │   ├── Dashboard.py             # Visualización
-│   │   └── TradeLogger.py           # Auditoría
-│   └── BotController.py      # Orquestador principal
-├── Estrategias/
-│   ├── EstrategiaBase.py     # Clase abstracta
-│   ├── Concretas/            # RSI+ADX, Trend Following, etc.
-│   └── Selector.py           # Factory pattern
+│   │   ├── ShadowLogger.py   # [NUEVO] Logging SQLite
+│   │   ├── ML_Logger.py      # Auditoría CSV
+│   │   └── GestorPrediccion.py
+│   └── BotController.py      # Cerebro Principal
 ├── Machine_Learning/
-│   ├── Core/                 # Procesamiento de datos
-│   ├── Models/               # Modelos entrenados
-│   └── Scripts/              # Entrenamiento y optimización
-├── Test/                     # Suite de tests
-├── main.py                   # Punto de entrada
+│   ├── Data/
+│   │   └── shadow_data.db    # [NUEVO] Base de datos de aprendizaje
+│   ├── Scripts/
+│   │   ├── Analysis/
+│   │   │   └── shadow_judge.py  # [NUEVO] El Juez Imparcial
+│   │   ├── Optimization/
+│   │   │   └── auto_tuner.py    # [NUEVO] El Optimizador Autónomo
+│   └── Logs/
+├── Estrategias/              # Lógica de señales (RSI, SuperTrend, etc.)
 └── config_trading.json       # Configuración central
 ```
 
 ---
 
-## � Instalación
+## 🚀 Uso del Auto-Tuner
 
-### Requisitos
+El sistema de optimización es modular. Puedes ejecutarlo manualmente o programarlo (CRON).
+
+### 1. Ejecución Manual
 ```bash
-pip install -r requirements.txt
+python Machine_Learning/Scripts/Optimization/auto_tuner.py
 ```
 
-### Configuración
+### 2. Configuración
+En el script `auto_tuner.py`:
+- `ENABLE_AUTOTUNER = False`: Modo **Dry Run** (Solo sugiere, envía alerta a Telegram).
+- `ENABLE_AUTOTUNER = True`: Modo **Live** (Modifica `config_trading.json` automáticamente).
 
-#### 1. Variables de Entorno (`.env`)
+---
+
+## 🔧 Configuración Rápida
+
+### Variables de Entorno (.env)
 ```env
 BINANCE_API_KEY=tu_api_key
 BINANCE_SECRET_KEY=tu_secret_key
+TELEGRAM_TOKEN=tu_bot_token
+TELEGRAM_ID=tu_chat_id
 ```
 
-#### 2. Configuración de Riesgo (`config_trading.json`)
+### Configuración de Riesgo (config_trading.json)
 ```json
 "sistema_riesgo": {
   "stop_loss_pct": 0.02,
   "take_profit_pct": 0.28,
-  "tp_parcial_roe": 0.20,
-  "porcentaje_venta_parcial": 0.50,
-  "tp_escalonados": {
-    "activo": false,
-    "niveles": [
-      { "roe": 0.20, "porcentaje_venta": 0.30 },
-      { "roe": 0.40, "porcentaje_venta": 0.35 },
-      { "roe": 0.80, "porcentaje_venta": 0.67 }
-    ],
-    "auto_break_even": true
-  },
-  "ml_threshold": 0.80
+  "ml_threshold": 0.75  // Este valor es ajustado SOLO por el AutoTuner
 }
 ```
-
-#### 3. Configuración de Pares
-```json
-"pares": {
-  "BTC/USDT": {
-    "activo": true,
-    "estrategia": "EstrategiaTrend",
-    "cantidad_operacion": "10%",
-    "timeframe": "1h",
-    "apalancamiento": 15
-  }
-}
-```
-
-### Ejecución
-
-#### Modo Testnet (Recomendado para testing)
-```bash
-# En config_trading.json: "usar_testnet": true
-python main.py
-```
-
-#### Modo Paper Trading (Simulación)
-```bash
-# En config_trading.json: "modo_ejecucion": "paper"
-python main.py
-```
-
-#### Modo Producción (Mainnet - Dinero Real)
-```bash
-# En config_trading.json: "usar_testnet": false, "modo_ejecucion": "mainnet"
-python main.py
-```
-
-> ⚠️ **ADVERTENCIA**: Este modo opera con dinero real en la red principal de Binance.
 
 ---
 
-## � Roadmap & Estado
+## 📈 Roadmap & Estado
 
 - [x] Conexión Binance Futures (Estable)
-- [x] Protección Rollback (Implementada)
-- [x] Trailing Stop Dinámico (Cancel/Replace Validado)
-- [x] Machine Learning (Random Forest - Operativo)
-- [x] Toma de Ganancias Parcial (Simple)
-- [x] Toma de Ganancias Escalonada (Ladder)
-- [x] Auto Break-Even (Condicional)
-- [x] Dashboard Visual (Modular)
-- [x] Paper Trading (Simulación Completa)
-- [ ] Notificaciones Telegram Avanzadas (En desarrollo)
-- [ ] Optimización ML (GridSearch automático)
-- [ ] Backtesting Engine
-
----
-
-## 🧪 Testing
-
-El bot incluye tests exhaustivos:
-
-```bash
-# Test de TP Escalonado
-python Test/test_ladder_tp.py
-
-# Test de ROE
-python Test/verificar_roe_real.py
-
-# Test de Trailing Masivo
-python Test/test_trailing_masivo.py
-```
-
----
-
-## 📈 Resultados (Paper Trading)
-
-| Sistema | ROE Final | Ganancia | Posición Restante |
-|---------|-----------|----------|-------------------|
-| Simple  | 20%       | $10,000  | 50%               |
-| Escalera| 80%       | $40,188  | 15%               |
-
-*Escenario: 1 BTC @ $100k → $180k en tendencia alcista*
+- [x] Machine Learning (Random Forest)
+- [x] Paper Trading (Simulación)
+- [x] **Shadow Trading System (Fase 1: Recolección)**
+- [x] **Shadow Judge (Fase 2: Análisis)**
+- [x] **Auto-Tuner (Fase 3: Auto-Optimización)**
+- [x] Notificaciones Telegram Inteligentes
+- [x] Migración a SQLite
+- [ ] Dashboard Web Completo (React/Next.js)
 
 ---
 
 ## ⚠️ Disclaimer
 
-**Este software opera con dinero real.** El trading de futuros conlleva riesgos significativos de pérdida de capital. 
-
-- Comienza siempre en **Modo Testnet** o **Paper Trading**
-- Comprende completamente la configuración antes de usar capital real
-- Nunca arriesgues más de lo que puedes permitirte perder
-- El rendimiento pasado no garantiza resultados futuros
-
-**Uso bajo tu propia responsabilidad.**
+**Este software opera con dinero real.** El trading de futuros conlleva riesgos significativos. La funcionalidad de Auto-Tuning modifica parámetros de riesgo automáticamente; úsala con precaución y monitoreo constante inicial.
 
 ---
 
