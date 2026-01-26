@@ -17,6 +17,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.pa
 sys.path.append(ROOT_DIR)
 
 from Core.Utils.ShadowLogger import ShadowLogger
+from Machine_Learning.Scripts.Analysis.shadow_judge import ShadowJudge
 
 # ==========================================
 # ⚙️ CONFIGURACIÓN DEL AUTO-TUNER
@@ -32,7 +33,7 @@ FNR_HIGH_THRESHOLD = 0.60  # Si > 60% eran buenas -> Bajar umbral (ser menos mie
 FNR_LOW_THRESHOLD = 0.10   # Si < 10% eran buenas -> Subir umbral (ser más selectivo)
 
 STEP_ADJUST = 0.05         # Cuánto mover el umbral
-MIN_ML_THRESHOLD = 0.45    # Límite inferior de seguridad
+MIN_ML_THRESHOLD = 0.37    # Límite inferior de seguridad
 MAX_ML_THRESHOLD = 0.95    # Límite superior
 
 CONFIG_PATH = os.path.join(ROOT_DIR, 'config_trading.json')
@@ -65,6 +66,15 @@ class AutoTuner:
     def run_tuning_cycle(self):
         print(f"\n{Fore.CYAN}🔧 Iniciando Auto-Tuner V1.0")
         print(f"   Master Switch: {'🟢 ON' if ENABLE_AUTOTUNER else '🔴 OFF (Dry Run)'}")
+        
+        # 0. EJECUTAR JUEZ (Asegurar que los datos estén frescos)
+        print(f"\n{Fore.YELLOW}⚖️ Invocando al Juez (ShadowJudge) antes de optimizar...")
+        try:
+            judge = ShadowJudge()
+            judge.run_analysis()
+        except Exception as e:
+            print(f"{Fore.RED}❌ Error ejecutando Juez: {e}")
+            # Continuamos, quizás hay datos viejos útiles
         
         if not os.path.exists(self.db_path):
             print("❌ Base de datos no encontrada.")
@@ -157,7 +167,7 @@ class AutoTuner:
             
             # Notificación de Sugerencia (Solo si NO está habilitado el auto-tuner, para avisar humano)
             if not ENABLE_AUTOTUNER:
-                msg = f"🔧 *Auto-Tuner Suggestion*\n\nPair: `{sub_simbolo}`\nFNR: `{fnr:.2f}`\nAction: *{accion}*\nChange: `{current_threshold}` -> `{nuevo_threshold}`\n\n_System is in Dry-Run mode._"
+                msg = f"🔧 *Auto-Tuner Suggestion*\n\nPair: `{sub_simbolo}`\nFalse Negative Rate: `{fnr:.2f}`\nAction: *{accion}*\nChange: `{current_threshold}` -> `{nuevo_threshold}`\n\n_System is in Dry-Run mode._"
                 self._notificar_telegram(msg)
         else:
             print(f"      OK. Umbral {current_threshold:.2f} parece óptimo.")

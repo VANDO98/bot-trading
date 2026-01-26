@@ -412,7 +412,8 @@ class BotController:
             atr = estrategia.calcular_atr(periodo=14) 
             if atr > 0:
                 distancia_atr = 2 * atr 
-                margen_fee = entry_price * 0.0020 # 0.20% de seguridad
+                # Antes 0.20%, ahora 0.50% para coincidir con Break-Even y no retroceder
+                margen_fee = entry_price * 0.0050 
                 if lado == 'buy':
                     target_atr = mark_price - distancia_atr
                     target_be = entry_price + margen_fee
