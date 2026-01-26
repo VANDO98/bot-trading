@@ -5,6 +5,10 @@ import sqlite3
 import shutil
 from datetime import datetime
 from colorama import Fore, init
+import requests
+from dotenv import load_dotenv
+
+load_dotenv() # Cargar variables de entorno (.env)
 
 init(autoreset=True)
 
@@ -36,9 +40,27 @@ CONFIG_PATH = os.path.join(ROOT_DIR, 'config_trading.json')
 class AutoTuner:
     def __init__(self):
         self.db_path = ShadowLogger.DB_PATH
+        self.telegram_token = os.getenv("TELEGRAM_TOKEN")
+        self.telegram_id = os.getenv("TELEGRAM_ID")
         
     def _conectar(self):
         return sqlite3.connect(self.db_path)
+
+    def _notificar_telegram(self, mensaje):
+        """Envía alerta a Telegram si está configurado."""
+        if not self.telegram_token or not self.telegram_id:
+            return
+            
+        url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
+        payload = {
+            "chat_id": self.telegram_id,
+            "text": mensaje,
+            "parse_mode": "Markdown"
+        }
+        try:
+            requests.post(url, data=payload, timeout=5)
+        except Exception as e:
+            print(f"{Fore.RED}⚠️ Error enviando Telegram: {e}")
 
     def run_tuning_cycle(self):
         print(f"\n{Fore.CYAN}🔧 Iniciando Auto-Tuner V1.0")
@@ -110,22 +132,33 @@ class AutoTuner:
         accion = "MANTENER"
         
         if fnr > FNR_HIGH_THRESHOLD:
-            # El bot está rechazando demasiadas buenas -> BAJAR umbral
-            nuevo_threshold = max(MIN_ML_THRESHOLD, current_threshold - STEP_ADJUST)
-            if nuevo_threshold != current_threshold:
+            # Intención: Bajar umbral para capturar más oportunidades
+            proposed = current_threshold - STEP_ADJUST
+            nuevo_threshold = max(MIN_ML_THRESHOLD, proposed)
+            
+            if nuevo_threshold < current_threshold:
                 accion = "BAJAR (Menos estricto)"
+            elif nuevo_threshold > current_threshold:
+                accion = "SUBIR (Corrección a Mínimo Seguro)"
                 
         elif fnr < FNR_LOW_THRESHOLD:
-            # El bot casi nunca se equivoca al rechazar, quizás está aceptando basura -> SUBIR umbral
-            # (Esta lógica asume que queremos optimizar shadow, pero cuidado con matar el winrate real)
-            # Por seguridad, solo subimos si está muy bajo.
-            nuevo_threshold = min(MAX_ML_THRESHOLD, current_threshold + STEP_ADJUST)
-            if nuevo_threshold != current_threshold:
+            # Intención: Subir umbral para filtrar mejor
+            proposed = current_threshold + STEP_ADJUST
+            nuevo_threshold = min(MAX_ML_THRESHOLD, proposed)
+            
+            if nuevo_threshold > current_threshold:
                 accion = "SUBIR (Más estricto)"
+            elif nuevo_threshold < current_threshold:
+                accion = "BAJAR (Corrección a Máximo Seguro)"
         
         if nuevo_threshold != current_threshold:
             print(f"      💡 SUGERENCIA: {accion} umbral de {current_threshold:.2f} -> {nuevo_threshold:.2f}")
             cambios_dict[sub_simbolo] = nuevo_threshold
+            
+            # Notificación de Sugerencia (Solo si NO está habilitado el auto-tuner, para avisar humano)
+            if not ENABLE_AUTOTUNER:
+                msg = f"🔧 *Auto-Tuner Suggestion*\n\nPair: `{sub_simbolo}`\nFNR: `{fnr:.2f}`\nAction: *{accion}*\nChange: `{current_threshold}` -> `{nuevo_threshold}`\n\n_System is in Dry-Run mode._"
+                self._notificar_telegram(msg)
         else:
             print(f"      OK. Umbral {current_threshold:.2f} parece óptimo.")
 
@@ -165,6 +198,10 @@ class AutoTuner:
                     old = full_config['pares'][simbolo].get('ml_threshold', 'N/A')
                     full_config['pares'][simbolo]['ml_threshold'] = round(nuevo_valor, 2)
                     print(f"   ✅ {simbolo}: {old} -> {nuevo_valor:.2f}")
+                    
+                    # Notificación de Cambio Aplicado
+                    msg = f"🔧 *Auto-Tuner APPLIED*\n\nPair: `{simbolo}`\nOld Threshold: `{old}`\nNew Threshold: `{nuevo_valor:.2f}`\n\n_Configuration updated._"
+                    self._notificar_telegram(msg)
             
             with open(CONFIG_PATH, 'w') as f:
                 json.dump(full_config, f, indent=4)
