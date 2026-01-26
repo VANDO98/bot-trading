@@ -74,7 +74,12 @@ class GestorPrediccion:
             # Recomendación: Dejar pasar si estamos en test, bloquear en real.
             # Por ahora retornamos True para no detener pares nuevos, pero con aviso.
             # print(Fore.YELLOW + f"⚠️ Sin modelo ML para {simbolo}. Operando sin filtro.")
-            return True 
+            return {
+                "decision": True,
+                "probabilidad": 0.0,
+                "umbral": 0.0,
+                "motivo": "Sin Modelo (Bypass)"
+            } 
 
         try:
             # 2. Leer Umbral (PRIORIDAD: Específico > Global)
@@ -96,12 +101,22 @@ class GestorPrediccion:
                 faltantes = [c for c in cols_modelo if c not in ultima_fila.columns]
                 if faltantes:
                     print(Fore.RED + f"⛔ Error ML {simbolo}: Faltan columnas {faltantes}")
-                    return False
+                    return {
+                        "decision": False,
+                        "probabilidad": 0.0,
+                        "umbral": 0.0,
+                        "motivo": f"Error: Faltan columnas {faltantes}"
+                    }
                 
                 X_input = ultima_fila[cols_modelo]
             else:
                 # Fallback legado
-                return True
+                return {
+                    "decision": True,
+                    "probabilidad": 0.0,
+                    "umbral": 0.0,
+                    "motivo": "Legacy Model (No Features)"
+                }
 
             # 5. Predicción
             probabilidad = modelo.predict_proba(X_input)[0][1] 
@@ -115,8 +130,18 @@ class GestorPrediccion:
             # Registrar
             MLLogger.registrar_prediccion(simbolo, probabilidad, umbral_config, es_aprobado, ultima_fila, direccion)
 
-            return es_aprobado
+            return {
+                "decision": es_aprobado,
+                "probabilidad": probabilidad,
+                "umbral": umbral_config,
+                "motivo": "Aprobado por ML" if es_aprobado else "Score Insuficiente"
+            }
 
         except Exception as e:
             print(Fore.RED + f"⚠️ Error predicción ML {simbolo}: {e}")
-            return False # Ante la duda, NO operar
+            return {
+                "decision": False,
+                "probabilidad": 0.0,
+                "umbral": 0.0,
+                "motivo": f"Error Excepción: {e}"
+            } # Ante la duda, NO operar

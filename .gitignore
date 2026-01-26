@@ -32,6 +32,7 @@ Core/Utils/Logs/
 *.xlsx
 *.png
 *.pdf
+*.db
 
 # --- Machine Learning (Datasets) ---
 Machine_Learning/Data_Entrenamiento/

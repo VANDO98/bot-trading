@@ -57,6 +57,42 @@ class GestorWebsocket:
             print(f"❌ Error conexión REST para {simbolo}: {e}")
             return []
 
+    def obtener_velas_rango(self, simbolo, timeframe, start_ms, end_ms):
+        """
+        Descarga velas históricas en un rango de tiempo específico.
+        start_ms, end_ms: timestamps en milisegundos.
+        """
+        symbol_clean = simbolo.replace('/', '').upper()
+        # Binance limita a 1000 velas por request. Si el rango es grande, habría que paginar,
+        # pero para el ShadowJudge (4h-24h) 1000 velas de 5m/1h suelen sobrar.
+        params = {
+            'symbol': symbol_clean, 
+            'interval': timeframe, 
+            'startTime': int(start_ms),
+            'endTime': int(end_ms),
+            'limit': 1000 
+        }
+        
+        try:
+            resp = requests.get(self.rest_url, params=params, timeout=10)
+            data = resp.json()
+            
+            if not isinstance(data, list):
+                print(f"⚠️ Error bajando historial rango para {simbolo}: {data}")
+                return []
+                
+            velas_formateadas = []
+            for k in data:
+                velas_formateadas.append({
+                    't': k[0], 'o': float(k[1]), 'h': float(k[2]), 'l': float(k[3]), 'c': float(k[4]), 'v': float(k[5]),
+                    'x': True
+                })
+            return velas_formateadas
+
+        except Exception as e:
+            print(f"❌ Error conexión REST Rango para {simbolo}: {e}")
+            return []
+
     def iniciar_flujo_hibrido(self, estrategias_dict, callback_kline):
         """
         FIX: Agrupa mercados por timeframe para evitar suscripciones cruzadas.

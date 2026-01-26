@@ -9,6 +9,7 @@ from Core.API.GestorWebsocket import GestorWebsocket
 from Core.Ejecucion.GestorEjecucion import GestorEjecucion 
 from Core.Utils.TradeLogger import TradeLogger 
 from Core.Utils.GestorPrediccion import GestorPrediccion
+from Core.Utils.ShadowLogger import ShadowLogger
 
 # Modo Paper Trading (opcional)
 from Core.Ejecucion.GestorEjecucionPaper import GestorEjecucionPaper
@@ -532,15 +533,52 @@ class BotController:
                 print(Fore.YELLOW + f"⚠️ Data insuficiente en memoria ({len(estrategia.velas)} velas).")
                 return 
 
-            ml_aprueba = self.gestor_prediccion.predecir_exito(
+            ml_resultado = self.gestor_prediccion.predecir_exito(
                 simbolo, 
                 estrategia.velas.copy(),
                 cfg_par,
                 senal  # Pasar la señal COMPRA/VENTA
             )
             
-            if not ml_aprueba:
-                print(Fore.LIGHTRED_EX + f"⛔ ML FILTRO: Operación cancelada por riesgo alto en {simbolo}.")
+            if not ml_resultado["decision"]:
+                motivo = ml_resultado["motivo"]
+                prob = ml_resultado["probabilidad"]
+                umbral = ml_resultado["umbral"]
+                
+                print(Fore.LIGHTRED_EX + f"⛔ ML FILTRO: Operación cancelada en {simbolo}. Motivo: {motivo}")
+                
+                # --- SHADOW MODE: REGISTRAR RECHAZO ---
+                # Calculamos SL/TP Teóricos para el registro
+                # (Solo aproximados, basándonos en configuración)
+                full_conf = Config.cargar_configuracion()
+                riesgo = full_conf.get('sistema_riesgo', {})
+                sl_pct = riesgo.get('stop_loss_pct', 0.02)
+                tp_pct = riesgo.get('take_profit_pct', 0.50)
+                
+                precio_actual = self.gestor_datos.obtener_precio(simbolo)
+                atr = estrategia.calcular_atr(14)
+                
+                # Lógica Bidireccional para SL/TP Teórico
+                if lado == 'buy':
+                    sl_teorico = precio_actual * (1 - sl_pct)
+                    tp_teorico = precio_actual * (1 + tp_pct)
+                else: # sell
+                    sl_teorico = precio_actual * (1 + sl_pct)
+                    tp_teorico = precio_actual * (1 - tp_pct)
+                
+                ShadowLogger.registrar_rechazo(
+                    simbolo=simbolo,
+                    senal=senal,
+                    precio_entrada=precio_actual,
+                    probabilidad=prob,
+                    umbral=umbral,
+                    motivo=motivo,
+                    estrategia_nombre=cfg_par.get('estrategia', 'Unknown'),
+                    atr=atr,
+                    sl_teorico=sl_teorico,
+                    tp_teorico=tp_teorico,
+                    apalancamiento=apalancamiento
+                )
                 return 
 
         except Exception as e:
